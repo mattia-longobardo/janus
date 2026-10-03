@@ -52,7 +52,7 @@ def _discovery(issuer: str) -> str:
 
 
 def _env_provider() -> OidcProvider | None:
-    if not settings.oidc_id:
+    if not (settings.oidc_id and settings.oidc_issuer.strip()):
         return None
     return OidcProvider(
         id="authentik", name=settings.oidc_name or "Authentik", discovery_url=_discovery(settings.oidc_issuer),
@@ -75,8 +75,9 @@ def load(db: Session) -> AuthConfig:
     for raw in stored.get("providers", []):
         sealed = raw.get("client_secret") or ""
         secret = secretbox.unseal(sealed) if sealed else None
-        if secret is None and raw["id"] in providers:
-            secret = providers[raw["id"]].client_secret  # override without its own secret keeps the env one
+        env_twin = providers.get(raw["id"])
+        if secret is None and env_twin is not None and env_twin.client_id == raw["client_id"]:
+            secret = env_twin.client_secret  # same client as the env one: the env secret still applies
         providers[raw["id"]] = OidcProvider(
             id=raw["id"], name=raw["name"], discovery_url=raw["discovery_url"], client_id=raw["client_id"],
             client_secret=secret or "", scopes=list(raw["scopes"]), enabled=bool(raw["enabled"]), source="custom",
@@ -131,7 +132,15 @@ def save(db: Session, allowed_emails: list[str] | None, providers: list[dict[str
         if item["id"] in ids:
             raise ValueError(f"id: duplicate provider {item['id']}")
         ids.add(item["id"])
+        env = _env_provider()
         secret = raw.get("client_secret")
+        if env is not None and item["id"] == env.id and secret in (None, "", env.client_secret) and {
+            k: item[k] for k in ("name", "discovery_url", "client_id", "scopes", "enabled")
+        } == {
+            "name": env.name, "discovery_url": env.discovery_url, "client_id": env.client_id,
+            "scopes": env.scopes, "enabled": env.enabled,
+        }:
+            continue  # identical to the env provider: no override
         if secret:
             item["client_secret"] = secretbox.seal(secret)
         elif item["id"] in previous:
@@ -141,7 +150,8 @@ def save(db: Session, allowed_emails: list[str] | None, providers: list[dict[str
         new_providers.append(item)
     value: dict[str, Any] = {"providers": new_providers}
     if allowed_emails is not None:
-        value["allowed_emails"] = _emails(allowed_emails)
+        if set(_emails(allowed_emails)) != set(_emails(settings.allowed_emails)):  # equal to env: drop the override
+            value["allowed_emails"] = _emails(allowed_emails)
     elif "allowed_emails" in stored:
         value["allowed_emails"] = stored["allowed_emails"]
     row = db.get(Setting, KEY)

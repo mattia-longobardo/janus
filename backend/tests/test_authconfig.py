@@ -59,7 +59,7 @@ def test_custom_provider_with_env_id_wins_and_can_disable_it(client):
         {"id": "authentik", "name": "SSO", "discovery_url": "https://sso.example/.well-known/openid-configuration",
          "client_id": "x", "scopes": ["openid"], "enabled": False}]})
     pub = client.get("/api/settings/auth").json()
-    assert [(p["id"], p["source"], p["enabled"], p["client_secret"]) for p in pub["providers"]] == [("authentik", "custom", False, True)]
+    assert [(p["id"], p["source"], p["enabled"], p["client_secret"]) for p in pub["providers"]] == [("authentik", "custom", False, False)]
     assert client.get("/api/internal/auth-config").json()["providers"] == []
 
 
@@ -79,3 +79,42 @@ def test_private_http_discovery_allowed_public_http_rejected(client):
     assert put("http://192.168.1.5:9000/.well-known/openid-configuration").status_code == 200
     assert put("http://8.8.8.8/.well-known/openid-configuration").status_code == 422
     assert put("https://kc.example/x").status_code == 200
+
+
+def test_saving_env_equal_emails_drops_the_override(client, monkeypatch):
+    client.put("/api/settings/auth", json={"allowed_emails": ["z@example.org"]})
+    client.put("/api/settings/auth", json={"allowed_emails": ["B@example.org", "a@example.org"]})
+    assert client.get("/api/settings/auth").json()["allowed_emails_source"] == "env"
+    monkeypatch.setattr(settings, "allowed_emails", "new@example.org")
+    assert client.get("/api/settings/auth").json()["allowed_emails"] == ["new@example.org"]
+
+
+def test_round_tripping_the_env_provider_keeps_it_env(client, monkeypatch):
+    pub = client.get("/api/settings/auth").json()
+    pub["providers"][0].pop("client_secret")
+    pub["providers"][0].pop("source")
+    assert client.put("/api/settings/auth", json={"providers": pub["providers"]}).status_code == 200
+    assert client.get("/api/settings/auth").json()["providers"][0]["source"] == "env"
+    monkeypatch.setattr(settings, "oidc_issuer", "https://other.example/o/janus/")
+    [p] = client.get("/api/internal/auth-config").json()["providers"]
+    assert p["discovery_url"] == "https://other.example/o/janus/.well-known/openid-configuration"
+
+
+def test_env_secret_is_inherited_only_for_the_same_client_id(client):
+    base = {"id": "authentik", "name": "A", "discovery_url": "https://x.example/.well-known/openid-configuration",
+            "scopes": ["openid"], "enabled": True}
+    client.put("/api/settings/auth", json={"providers": [{**base, "client_id": "cid"}]})
+    assert [p["client_secret"] for p in client.get("/api/internal/auth-config").json()["providers"]] == ["csecret"]
+    client.put("/api/settings/auth", json={"providers": [{**base, "client_id": "other"}]})
+    assert client.get("/api/internal/auth-config").json()["providers"] == []
+
+
+def test_oidc_id_without_issuer_is_no_provider(db, monkeypatch):
+    monkeypatch.setattr(settings, "oidc_issuer", "")
+    assert authconfig.load(db).providers == []
+
+
+def test_bad_discovery_url_with_valid_id_is_422(client):
+    r = client.put("/api/settings/auth", json={"providers": [{"id": "good-id", "name": "x", "discovery_url": "nope",
+                                                              "client_id": "j", "scopes": ["openid"], "enabled": True}]})
+    assert r.status_code == 422
