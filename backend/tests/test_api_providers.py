@@ -66,3 +66,11 @@ def test_pihole_router_is_mounted(client):
 def test_provider_routes_require_the_internal_token(client):
     assert client.get("/api/providers", headers={"X-Janus-Internal-Token": "wrong"}).status_code == 401
     assert client.get("/api/providers/pihole/preflight", headers={"X-Janus-Internal-Token": "wrong"}).status_code == 401
+
+
+def test_put_switching_away_from_pihole_in_apply_is_409(client, db):
+    from app.syncmode import set_sync_mode
+
+    set_sync_mode(db, "apply", "test")
+    r = client.put("/api/providers/dhcp", json={"kind": None})
+    assert r.status_code == 409 and "janus rollback" in r.json()["detail"]

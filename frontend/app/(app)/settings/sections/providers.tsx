@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button, Field, Notice, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
+import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { ProviderKind, ProviderRole, ProvidersList } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
@@ -27,8 +28,10 @@ function defined(patch: Record<string, unknown>): Record<string, unknown> {
 
 export function ProvidersSection() {
   const { data, error, reload } = useResource<ProvidersList>("/providers");
-  const { reload: reloadFeatures } = useFeatures();
-  const { reload: reloadSettings } = useSettings();
+  const { features, reload: reloadFeatures } = useFeatures();
+  const { settings, reload: reloadSettings } = useSettings();
+  // The DHCP provider is serving DHCP for Janus: the backend refuses to switch away until `janus rollback`.
+  const servingDhcp = settings.sync_mode === "apply" && hasCapability(features, "dhcp", "dhcp_server");
   const [dhcpSaves, setDhcpSaves] = useState(0);
 
   if (!data) {
@@ -45,13 +48,32 @@ export function ProvidersSection() {
   return (
     <div id="providers" className="flex flex-col gap-6">
       {ROWS.map(({ role, title }) => (
-        <RoleRow key={role === "dns" ? `dns-${dhcpSaves}` : role} role={role} title={title} list={data} onSaved={() => saved(role)} />
+        <RoleRow
+          key={role === "dns" ? `dns-${dhcpSaves}` : role}
+          role={role}
+          title={title}
+          list={data}
+          servingDhcp={servingDhcp}
+          onSaved={() => saved(role)}
+        />
       ))}
     </div>
   );
 }
 
-function RoleRow({ role, title, list, onSaved }: { role: ProviderRole; title: string; list: ProvidersList; onSaved: () => Promise<void> }) {
+function RoleRow({
+  role,
+  title,
+  list,
+  servingDhcp,
+  onSaved,
+}: {
+  role: ProviderRole;
+  title: string;
+  list: ProvidersList;
+  servingDhcp: boolean;
+  onSaved: () => Promise<void>;
+}) {
   const view = list.roles[role];
   const dhcp = list.roles.dhcp;
   const dhcpSpec = list.available.find((k) => k.kind === dhcp?.kind);
@@ -126,7 +148,13 @@ function RoleRow({ role, title, list, onSaved }: { role: ProviderRole; title: st
           ))}
         </select>
       </Field>
-      {role === "dhcp" && selected !== savedChoice && <Notice>Changing the DHCP provider switches Janus back to dry-run.</Notice>}
+      {role === "dhcp" && selected !== savedChoice && (
+        <Notice tone={servingDhcp ? "error" : "info"}>
+          {servingDhcp
+            ? `${view?.label ?? "The current provider"} is serving DHCP (apply). Run janus rollback first, so the LAN never has two DHCP servers; then switch.`
+            : "Changing the DHCP provider switches Janus back to dry-run."}
+        </Notice>
+      )}
       {selected === SAME && <p className="text-sm text-muted">Uses the {dhcp?.label} connection set above.</p>}
       {spec && selected !== SAME && (
         <Form

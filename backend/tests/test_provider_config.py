@@ -152,11 +152,26 @@ def test_view_hides_secrets_and_their_schema_default(db):
     assert "default" not in view["schema"]["properties"]["password"]
 
 
-def test_switching_dhcp_provider_forces_dry_run(db):
+def test_switching_dhcp_provider_forces_dry_run(db, monkeypatch):
+    monkeypatch.setattr(settings, "dhcp_provider", "none")   # from no provider: nothing is serving DHCP for Janus
     with _demo():
         set_sync_mode(db, "apply", "test")
         pc.save_role(db, Role.DHCP, "demo", {})
         assert load_sync_mode(db) == "dry-run"
+
+
+def test_switching_away_from_a_dhcp_server_in_apply_needs_a_rollback_first(db):
+    with _demo():
+        set_sync_mode(db, "apply", "test")
+        with pytest.raises(pc.ProviderInUse, match="janus rollback"):
+            pc.save_role(db, Role.DHCP, "demo", {})
+        with pytest.raises(pc.ProviderInUse):
+            pc.save_role(db, Role.DHCP, None, None)
+        assert pc.load_role(db, Role.DHCP).kind == "pihole" and load_sync_mode(db) == "apply"
+        pc.save_role(db, Role.DHCP, "pihole", {"lease": "12h"})   # same provider: allowed
+        set_sync_mode(db, "dry-run", "test")
+        pc.save_role(db, Role.DHCP, "demo", {})   # after the rollback (dry-run) it is allowed
+        assert pc.load_role(db, Role.DHCP).kind == "demo"
 
 
 def test_kind_without_that_role_is_refused(db):

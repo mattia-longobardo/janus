@@ -18,7 +18,7 @@ from app.config import settings
 from app.events import record_event
 from app.models import Setting
 from app.providers import registry
-from app.providers.base import ProviderSpec, Role
+from app.providers.base import Capability, ProviderSpec, Role, role_capabilities
 from app.syncmode import load_sync_mode, set_sync_mode
 
 KEY = "providers.config"
@@ -29,6 +29,10 @@ log = logging.getLogger(__name__)
 
 class ConfigError(ValueError):
     pass
+
+
+class ProviderInUse(ConfigError):
+    """The change would leave a second DHCP server running: the current provider must be rolled back first."""
 
 
 @dataclass(frozen=True)
@@ -211,6 +215,10 @@ def save_role(db: Session, role: Role, kind: str | None, patch: dict[str, Any] |
 
     after = _resolve(stored, role)
     kind_before, kind_after = (before.kind if before else None), (after.kind if after else None)
+    if (role is Role.DHCP and kind_before != kind_after and before is not None
+            and Capability.DHCP_SERVER in role_capabilities(before.spec, role) and load_sync_mode(db) == "apply"):
+        # It is serving DHCP for Janus right now: switching away would leave two DHCP servers on the LAN.
+        raise ProviderInUse(f"{before.spec.label} is serving DHCP (sync mode apply): run janus rollback first")
     payload: dict[str, Any] = {"role": role.value, "kind_before": kind_before, "kind_after": kind_after,
                                "forced_dry_run": False}
     if role is Role.DHCP and kind_before != kind_after:

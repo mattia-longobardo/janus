@@ -66,3 +66,22 @@ it("drops an unsaved DNS draft once DHCP is saved", async () => {
   expect(await screen.findByText("Saved")).toBeTruthy();
   expect((screen.getByLabelText("DNS provider") as HTMLSelectElement).value).toBe("none");
 });
+
+it("explains that Pi-hole must be rolled back first while it serves DHCP, and shows the refusal", async () => {
+  const features = await import("@/lib/features");
+  const settings = await import("@/lib/settings-context");
+  vi.spyOn(features, "useFeatures").mockReturnValue({
+    features: { providers: { dhcp: { kind: "pihole", label: "Pi-hole", capabilities: ["reservations", "dhcp_server"], policies: [], down_since: null }, dns: null } } as never,
+    reload: async () => {},
+  });
+  vi.spyOn(settings, "useSettings").mockReturnValue({ settings: { ...settings.DEFAULT_SETTINGS, sync_mode: "apply" }, reload: async () => {} });
+  vi.spyOn(api, "get").mockResolvedValue(LIST);
+  const { ApiError } = await import("@/lib/api");
+  vi.spyOn(api, "put").mockRejectedValue(new ApiError(409, "Pi-hole is serving DHCP (sync mode apply): run janus rollback first"));
+  render(<ProvidersSection />);
+  await userEvent.selectOptions(await screen.findByLabelText("DHCP & access provider"), "unifi");
+  expect(screen.getByText(/Run janus rollback first/)).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Save DHCP & access" }));
+  expect(await screen.findByText(/run janus rollback first/)).toBeTruthy();
+  vi.restoreAllMocks();
+});

@@ -40,6 +40,8 @@ Inside the `janus` container:
 | `cutover --pihole-password-env VAR` | Enable Pi-hole DHCP with the quarantine pool and switch Janus to `apply` |
 | `rollback --pihole-password-env VAR` | Turn Pi-hole DHCP off (removing the guest range first) and switch Janus back to `dry-run` |
 
+While Janus is in `apply` with a DHCP provider that serves DHCP itself (Pi-hole after `cutover`), changing the DHCP provider in Settings (or `PUT /api/providers/dhcp`) is refused with 409 "run janus rollback first": roll back first, so the LAN never has two DHCP servers, then switch.
+
 `preflight`, `backup`, `cutover` and `rollback` are registered by the Pi-hole provider through its `cli` hook; usage is unchanged. `cutover` refuses when the DHCP role belongs to another provider. The same preflight is served at `GET /api/providers/pihole/preflight` (it replaces `/api/cutover`), and its informational `guest_rules` check does not block.
 
 ## Metrics

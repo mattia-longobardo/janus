@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.providers import registry
 from app.providers.base import HealthCheck, ProviderError, Role
-from app.providers.config import ConfigError, config_schema, load_role, save_role, view_role
+from app.providers.config import ConfigError, ProviderInUse, config_schema, load_role, save_role, view_role
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])
 
@@ -38,6 +38,9 @@ def list_providers(db: Session = Depends(get_db)) -> dict[str, Any]:
 def put_role(role: Role, body: RoleBody, db: Session = Depends(get_db)) -> dict[str, Any] | None:
     try:
         save_role(db, role, body.kind, body.config, same_as=Role(body.same_as) if body.same_as else None)
+    except ProviderInUse as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
     except ConfigError as exc:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
