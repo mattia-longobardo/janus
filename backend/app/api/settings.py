@@ -5,12 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.db import get_db
 from app.events import record_event
 from app.general import TIMEZONE_KEY, current_tz
 from app.models import Setting
 from app.netconfig import NetConfigError, load_netconfig, sources, update_netconfig
+from app.notify.config import EMAIL, GOTIFY
 from app.syncmode import load_sync_mode
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -67,7 +67,7 @@ def _view(db: Session) -> dict[str, Any]:
             "last_sweep_at": _setting(db, "sentinel.heartbeat"),
             "maintenance_active": bool(_setting(db, "maintenance.active")),
         },
-        "channels": {"gotify_url": settings.gotify_url, "email_sender": settings.smtp_sender},
+        "channels": {"gotify_url": GOTIFY.load(db)["url"], "email_sender": EMAIL.load(db)["sender"]},
     }
 
 

@@ -4,10 +4,14 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.notify.config import channel_ready
+
 log = logging.getLogger(__name__)
 
 # One entry per optional area of the web app; the frontend hides what is off.
-FEATURE_PROVIDERS: dict[str, Callable[[Session], dict[str, Any]]] = {}
+FEATURE_PROVIDERS: dict[str, Callable[[Session], dict[str, Any]]] = {
+    "notify": channel_ready,
+}
 
 
 def collect(db: Session) -> dict[str, dict[str, Any]]:
