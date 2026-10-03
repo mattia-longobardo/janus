@@ -22,6 +22,9 @@ COPY backend/ .
 COPY --from=web /app/frontend/.next/standalone /app/frontend
 COPY --from=web /app/frontend/.next/static /app/frontend/.next/static
 COPY --from=web /app/frontend/public /app/frontend/public
+# migrate-auth.mjs resolves better-auth and pg from the standalone node_modules
+# (both are serverExternalPackages, so the build traces them there).
+COPY --from=web /app/frontend/scripts /app/frontend/scripts
 COPY entrypoint.sh /app/entrypoint.sh
 
 ENV PYTHONPATH=/app/backend PYTHONUNBUFFERED=1 NEXT_TELEMETRY_DISABLED=1

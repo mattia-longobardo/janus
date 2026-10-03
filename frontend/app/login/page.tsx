@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
-import { signIn } from "@/auth";
+import { getAuth } from "@/lib/auth/server";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -14,7 +16,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
 
   async function login() {
     "use server";
-    await signIn("authentik", { redirectTo: target });
+    // Interim: B4 replaces this page with the password form and per-provider buttons.
+    const auth = await getAuth();
+    const { url } = await auth.api.signInSocial({ body: { provider: "authentik", callbackURL: target, disableRedirect: true }, headers: await headers() });
+    if (url) redirect(url);
   }
 
   return (
