@@ -151,3 +151,37 @@ describe("last-admin guard", () => {
     expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe("user.create hook", () => {
+  type CreateHook = (user: Record<string, unknown>) => Promise<unknown>;
+  beforeEach(() => {
+    vi.resetModules();
+    betterAuth.mockClear();
+    query.mockReset();
+    fetchAuthConfig.mockResolvedValue({ allowed_emails: ["me@example.org"], providers: [], version: "v1" });
+  });
+
+  async function createHook(): Promise<CreateHook> {
+    const { getAuth } = await import("@/lib/auth/server");
+    await getAuth();
+    const options = betterAuth.mock.lastCall![0] as { databaseHooks: { user: { create: { before: CreateHook } } } };
+    return options.databaseHooks.user.create.before;
+  }
+
+  it("makes the first allowlisted OIDC user admin while no user exists", async () => {
+    query.mockResolvedValue({ rows: [{ exists: false }] as never });
+    const before = await createHook();
+    await expect(before({ source: "oidc", email: "me@example.org" })).resolves.toEqual({
+      data: { source: "oidc", email: "me@example.org", role: "admin" },
+    });
+  });
+
+  it("keeps later OIDC users at the default role and refuses unlisted ones without asking the database", async () => {
+    query.mockResolvedValue({ rows: [{ exists: true }] as never });
+    const before = await createHook();
+    await expect(before({ source: "oidc", email: "me@example.org" })).resolves.toEqual({ data: { source: "oidc", email: "me@example.org" } });
+    query.mockClear();
+    await expect(before({ source: "oidc", email: "other@example.org" })).resolves.toBe(false);
+    expect(query).not.toHaveBeenCalled();
+  });
+});

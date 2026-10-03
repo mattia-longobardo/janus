@@ -15,7 +15,7 @@ so a missing one never breaks `docker compose`.
 | `AUTH_SECRET` | better-auth session secret (`openssl rand -base64 32`). Changing it signs everybody out |
 | `JANUS_HOST` | Public host name served by Traefik; also `AUTH_URL` (the better-auth base URL) |
 
-With only these set the app starts with password login: the first visit redirects to `/setup`, which creates the first admin.
+With only these set the app starts with password login: the first visit redirects to `/setup`, which creates the first admin. When OIDC providers are configured, `/setup` also shows their buttons: while no user exists, the first allowlisted OIDC account to sign in becomes admin.
 The notification pages stay out of the menu until a channel is ready. Guests is listed while the DHCP provider supports guests or there is no provider (Janus then only keeps the list).
 
 ### Optional

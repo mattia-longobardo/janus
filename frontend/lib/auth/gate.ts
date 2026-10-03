@@ -9,3 +9,17 @@ export function isUserAllowed(user: GateUser, allowedEmails: string[]): boolean 
   if (!email) return false;
   return allowedEmails.some((entry) => entry.trim().toLowerCase() === email);
 }
+
+/**
+ * What to store when better-auth creates a user, or false to refuse it. OIDC users must be allowlisted; the very
+ * first one becomes admin, so an install upgraded from Authentik-only sign-in is not left without an administrator.
+ */
+export function newUserData<T extends GateUser & { role?: string | null }>(
+  user: T,
+  allowedEmails: string[],
+  noUsersYet: boolean,
+): false | { data: T } {
+  if (user.source === "local") return { data: user };
+  if (!isUserAllowed(user, allowedEmails)) return false;
+  return { data: noUsersYet ? { ...user, role: "admin" } : user };
+}

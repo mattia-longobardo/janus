@@ -8,7 +8,7 @@ import { Pool } from "pg";
 
 import { authDatabaseUrl, fetchAuthConfig, type AuthConfig, type AuthProvider } from "@/lib/auth/config";
 import { probeDiscovery } from "@/lib/auth/discovery";
-import { isUserAllowed } from "@/lib/auth/gate";
+import { isUserAllowed, newUserData } from "@/lib/auth/gate";
 import { adminLossTarget, canRemoveOrDemote, LAST_ADMIN_MESSAGE } from "@/lib/auth/last-admin";
 
 // Keep the schema-affecting options (additional fields, username/admin
@@ -46,9 +46,10 @@ function build(cfg: AuthConfig, providers: AuthProvider[]) {
       user: {
         create: {
           before: async (user) => {
-            // OIDC sign-ins create a user only when the e-mail is allowlisted.
-            if (user.source !== "local" && !isUserAllowed(user, cfg.allowed_emails)) return false;
-            return { data: user };
+            // OIDC sign-ins create a user only when the e-mail is allowlisted; the first one becomes admin.
+            const oidc = user.source !== "local";
+            const noUsersYet = oidc && isUserAllowed(user, cfg.allowed_emails) && !(await getHasUsers());
+            return newUserData(user, cfg.allowed_emails, noUsersYet);
           },
         },
       },

@@ -42,19 +42,6 @@ export function LoginForm({ providers, error, callbackUrl }: { providers: LoginP
     }
   }
 
-  async function onProvider(provider: LoginProvider) {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const { error: err } = await authClient.signIn.social({ provider: provider.id, callbackURL: target });
-      if (err) setMessage(err.code === "PROVIDER_NOT_FOUND" ? `${provider.name} is not reachable right now. Try again later.` : err.message || "Sign-in failed.");
-    } catch {
-      setMessage(`${provider.name} is not reachable right now. Try again later.`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <div className="flex flex-col gap-4">
       {message && (
@@ -75,17 +62,62 @@ export function LoginForm({ providers, error, callbackUrl }: { providers: LoginP
           Sign in
         </button>
       </form>
+      <ProviderButtons providers={providers} callbackUrl={target} disabled={busy} onMessage={setMessage} />
+    </div>
+  );
+}
+
+/**
+ * One "Sign in with …" button per OIDC provider. Errors go to `onMessage`, or to an alert of its own when the
+ * caller has none (the setup page).
+ */
+export function ProviderButtons({
+  providers,
+  callbackUrl,
+  disabled = false,
+  onMessage,
+}: {
+  providers: LoginProvider[];
+  callbackUrl?: string;
+  disabled?: boolean;
+  onMessage?: (message: string | null) => void;
+}) {
+  const target = safeCallbackUrl(callbackUrl);
+  const [busy, setBusy] = useState(false);
+  const [ownMessage, setOwnMessage] = useState<string | null>(null);
+  const report = onMessage ?? setOwnMessage;
+
+  async function onProvider(provider: LoginProvider) {
+    setBusy(true);
+    report(null);
+    try {
+      const { error: err } = await authClient.signIn.social({ provider: provider.id, callbackURL: target });
+      if (err) report(err.code === "PROVIDER_NOT_FOUND" ? `${provider.name} is not reachable right now. Try again later.` : err.message || "Sign-in failed.");
+    } catch {
+      report(`${provider.name} is not reachable right now. Try again later.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      {!onMessage && ownMessage && (
+        <p role="alert" className="rounded-lg border border-bad px-3 py-2 text-sm text-bad">
+          {ownMessage}
+        </p>
+      )}
       {providers.map((p) => (
         <button
           key={p.id}
           type="button"
-          disabled={busy}
+          disabled={disabled || busy}
           onClick={() => onProvider(p)}
           className="h-12 w-full rounded-lg border border-line bg-card text-sm font-semibold disabled:opacity-60"
         >
           Sign in with {p.name}
         </button>
       ))}
-    </div>
+    </>
   );
 }
