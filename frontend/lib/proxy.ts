@@ -20,13 +20,21 @@ interface ForwardOptions {
 
 export async function forward(req: Request, path: string[], options: ForwardOptions): Promise<Response> {
   if (!options.signedIn) return Response.json({ detail: "not signed in" }, { status: 401 });
-  const first = decodeURIComponent(path[0] ?? "").split("/")[0].toLowerCase();
-  if (first === "internal") return Response.json({ detail: "not found" }, { status: 404 });
   if (isCrossSite(req, options.allowedOrigins)) {
     return Response.json({ detail: "cross-site request refused" }, { status: 403 });
   }
   const url = new URL(`/api/${path.map(encodeURIComponent).join("/")}`, options.backend);
   url.search = new URL(req.url).search;
+  // Judge the RESOLVED path (dot segments, duplicate slashes, encoded separators), never the raw input.
+  let first: string;
+  try {
+    const rawFirst = decodeURIComponent(path[0] ?? "").split("/")[0];
+    const resolved = decodeURIComponent(url.pathname).replace(/^\/api\/+/i, "").split("/")[0];
+    first = [rawFirst, resolved].map((v) => v.toLowerCase()).includes("internal") ? "internal" : "";
+  } catch {
+    return Response.json({ detail: "bad request" }, { status: 400 });
+  }
+  if (first === "internal") return Response.json({ detail: "not found" }, { status: 404 });
   let body: ArrayBuffer | undefined;
   if (WRITES.has(req.method)) {
     body = await req.arrayBuffer();

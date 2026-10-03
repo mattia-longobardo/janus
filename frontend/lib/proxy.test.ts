@@ -73,10 +73,17 @@ describe("forward", () => {
 
   it("never forwards internal routes from the browser", async () => {
     const fetcher = vi.fn();
-    for (const path of [["internal", "auth-config"], ["Internal", "x"], ["internal%2Fauth-config"]]) {
+    for (const path of [["internal", "auth-config"], ["Internal", "x"], ["internal%2Fauth-config"], ["x", "..", "internal", "a"], ["", "internal", "x"]]) {
       const response = await forward(request("GET"), path, { signedIn: true, backend: "http://b", allowedOrigins: ORIGINS, fetcher });
       expect(response.status).toBe(404);
     }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed percent-encoding without forwarding", async () => {
+    const fetcher = vi.fn();
+    const response = await forward(request("GET"), ["%E0%A4%A"], { signedIn: true, backend: "http://b", allowedOrigins: ORIGINS, fetcher });
+    expect(response.status).toBe(400);
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
