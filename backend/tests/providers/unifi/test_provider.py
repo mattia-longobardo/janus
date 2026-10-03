@@ -58,23 +58,26 @@ def test_full_removal_clears_the_fixed_ip_and_never_forgets():
     assert p.list_reservations() == []
 
 
-def test_hand_made_fixed_ip_and_block_are_not_canonical():
-    """Without Janus' note they look like Janus' own; the first sync must not adopt them as written by Janus."""
+def test_hand_made_fixed_ip_and_block_are_unmanaged():
+    """Without Janus' note they are not Janus' reservations, but the duplicate guard still sees MAC and IP."""
     fake = FakeUnifi(users=[
         {"_id": "u1", "mac": mac, "name": "nas", "use_fixedip": True, "fixed_ip": "192.168.1.10", "network_id": "n1"},
         {"_id": "u2", "mac": "00:00:5e:00:53:11", "name": "kid", "blocked": True, "note": "grounded"},
     ])
     entries = UnifiProvider(fake, CFG).list_reservations()
-    assert [e.canonical for e in entries] == [False, False]
-    assert [e.reservation.policy for e in entries] == [Policy.FULL, Policy.BLOCKED]
+    assert [(e.mac, e.ip, e.reservation) for e in entries] == [(MAC, "192.168.1.10", None),
+                                                                ("00:00:5E:00:53:11", None, None)]
 
 
-def test_removing_a_hand_made_entry_keeps_its_note():
-    fake = FakeUnifi(users=[{"_id": "u2", "mac": mac, "name": "kid", "blocked": True, "note": "grounded"}])
+def test_full_removal_keeps_the_client_name():
+    fake = FakeUnifi()
     p = UnifiProvider(fake, CFG)
+    p.add_reservation(Reservation(MAC, "laptop-a", "192.168.1.10"))
+    fake.users[mac]["name"] = "Renamed in UniFi"
     [entry] = p.list_reservations()
     p.remove_reservation(entry)
-    assert fake.users[mac]["note"] == "grounded" and fake.users[mac]["blocked"] is False
+    assert fake.updates[-1] == (entry.key, {"note": "", "noted": False, "use_fixedip": False, "fixed_ip": ""})
+    assert fake.users[mac]["name"] == "Renamed in UniFi"
 
 
 def test_guest_clears_fixed_ip_and_writes_the_janus_note():
@@ -219,6 +222,15 @@ def test_check_summarises_reservations():
     assert UnifiProvider(fake, CFG).check() == "1 reservations, 2 known clients, network n1"
 
 
+def test_check_reads_known_clients_once():
+    fake = FakeUnifi()
+    calls = []
+    real = fake.list_known
+    fake.list_known = lambda: calls.append(1) or real()
+    UnifiProvider(fake, CFG).check()
+    assert calls == [1]
+
+
 def test_check_reports_an_unreachable_controller():
     with pytest.raises(UnifiError):
         UnifiProvider(FakeUnifi(fail=True), CFG).check()
@@ -304,4 +316,56 @@ def test_apply_rewrites_a_drifted_entry(db):
     diff = apply_sync(db, UnifiProvider(fake, CFG), "unifi", SPEC.policies)
     assert [e.key for e in diff.to_remove] == ["u1"] and len(diff.to_add) == 1
     assert fake.users[mac]["network_id"] == "n1"
+    assert plan_sync(db, UnifiProvider(fake, CFG), "unifi", SPEC.policies).empty
+
+
+def _pending(db, mac_, name):
+    db.add(Device(mac=mac_, name=name.upper(), hostname=name, access=Access.pending))
+    db.flush()
+
+
+def test_apply_never_unblocks_a_hand_blocked_pending_device(db):
+    _pending(db, MAC, "kid")
+    fake = FakeUnifi(users=[{"_id": "u1", "mac": mac, "name": "Kid tablet", "blocked": True}])
+    diff = apply_sync(db, UnifiProvider(fake, CFG), "unifi", SPEC.policies)
+    assert fake.commands == [] and fake.updates == [] and fake.users[mac]["blocked"] is True
+    assert [e.key for e in diff.unmanaged] == ["u1"] and not diff.to_remove
+
+
+def test_apply_never_clears_a_hand_set_fixed_ip_of_a_pending_device(db):
+    _pending(db, MAC, "nas")
+    user = {"_id": "u1", "mac": mac, "name": "NAS", "use_fixedip": True, "fixed_ip": "192.168.1.50", "network_id": "n1"}
+    fake = FakeUnifi(users=[user])
+    diff = apply_sync(db, UnifiProvider(fake, CFG), "unifi", SPEC.policies)
+    assert fake.updates == [] and fake.users[mac] == user
+    assert [e.key for e in diff.unmanaged] == ["u1"] and not diff.to_remove
+
+
+def test_authorized_device_over_a_hand_set_fixed_ip_is_reported_not_overwritten(db):
+    g = _group(db)
+    db.add(Device(mac=MAC, name="A", hostname="a", group=g, static_ip="192.168.1.10", access=Access.authorized))
+    db.flush()
+    user = {"_id": "u1", "mac": mac, "name": "NAS", "use_fixedip": True, "fixed_ip": "192.168.1.50", "network_id": "n1"}
+    fake = FakeUnifi(users=[user])
+    diff = apply_sync(db, UnifiProvider(fake, CFG), "unifi", SPEC.policies)
+    assert fake.updates == [] and fake.users[mac] == user and not diff.to_add
+    assert len(diff.failed) == 1 and "would duplicate" in diff.failed[0]
+
+
+def test_noted_janus_entries_still_converge(db):
+    g = _group(db)
+    db.add_all([
+        Device(mac=MAC, name="A", hostname="a", group=g, static_ip="192.168.1.10", access=Access.authorized),
+        Device(mac="00:00:5E:00:53:11", name="B", hostname="b", group=g, access=Access.guest),
+    ])
+    db.flush()
+    fake = FakeUnifi(users=[
+        {"_id": "u1", "mac": mac, "name": "a", "use_fixedip": True, "fixed_ip": "192.168.1.11", "network_id": "n1",
+         "note": "janus:full"},
+        {"_id": "u2", "mac": "00:00:5e:00:53:11", "name": "b", "blocked": True, "note": "janus:blocked"},
+    ])
+    diff = apply_sync(db, UnifiProvider(fake, CFG), "unifi", SPEC.policies)
+    assert sorted(e.key for e in diff.to_remove) == ["u1", "u2"] and len(diff.to_add) == 2 and not diff.failed
+    assert fake.users[mac]["fixed_ip"] == "192.168.1.10" and fake.users["00:00:5e:00:53:11"]["blocked"] is False
+    assert fake.users["00:00:5e:00:53:11"]["note"] == GUEST_NOTE
     assert plan_sync(db, UnifiProvider(fake, CFG), "unifi", SPEC.policies).empty

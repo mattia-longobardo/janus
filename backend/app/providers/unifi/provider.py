@@ -4,8 +4,10 @@ FULL is a fixed IP on the LAN network, GUEST a known client without fixed IP car
 comes from the network's DHCP range), BLOCKED the controller's block flag. LAN_ONLY would need a VLAN or firewall rules
 and is not supported. Known clients carrying none of these are not reservations; Janus never forgets a client.
 
-Janus writes `note = "janus:<policy>"` on every client it reserves. Only an entry with that note is canonical: a fixed
-IP or block set by hand looks exactly like Janus' own otherwise, and the first sync would adopt (and later remove) it.
+Janus writes `note = "janus:<policy>"` on every client it reserves, and only a client with a `janus:` note is read as
+a reservation. A fixed IP or block set by hand is unmanaged (reservation=None, MAC and IP still reported for the
+duplicate guard), even when Janus knows the MAC: Janus never alters it. To let Janus take over such a client, clear its
+fixed IP or block in UniFi first.
 """
 from collections.abc import Callable
 from ipaddress import AddressValueError, IPv4Address, IPv4Network
@@ -107,7 +109,9 @@ class UnifiProvider:
 
     # ReservationStore
     def list_reservations(self) -> list[CurrentEntry]:
-        users = self.client.list_known()
+        return self._entries(self.client.list_known())
+
+    def _entries(self, users: list[dict[str, Any]]) -> list[CurrentEntry]:
         flagged = [u for u in users if u.get("blocked") or u.get("use_fixedip") or u.get("note") == GUEST_NOTE]
         if not flagged:
             return []
@@ -122,6 +126,8 @@ class UnifiProvider:
         if mac is None:
             return CurrentEntry(key, f"{name} ({user.get('mac')})", None, ip, None)
         display = f"{name} ({mac})"
+        if not str(user.get("note") or "").startswith(NOTE_PREFIX):
+            return CurrentEntry(key, display, mac, ip, None)   # set by hand: never Janus' to change
         if user.get("blocked"):
             reservation = Reservation(mac, name, None, Policy.BLOCKED)
         elif fixed:
@@ -153,17 +159,17 @@ class UnifiProvider:
         self.client.update_user(user_id, mark)
 
     def remove_reservation(self, entry: CurrentEntry) -> None:
-        """Undo what the entry's policy stands for and drop Janus' note (a note Janus did not write stays); the
-        client itself is never forgotten."""
+        """Undo what the entry's policy stands for and drop Janus' note; the client keeps its name and is never
+        forgotten."""
         r = entry.reservation
         if r is None:
             return
+        fields: dict[str, Any] = {"note": "", "noted": False}
         if r.policy is Policy.BLOCKED:
             self.client.stamgr("unblock-sta", r.mac)
         elif r.policy is Policy.FULL:
-            self.client.set_fixed_ip(entry.key, ip=None, network_id=None, name=r.hostname)
-        if entry.canonical:
-            self.client.update_user(entry.key, {"note": "", "noted": False})
+            fields |= {"use_fixedip": False, "fixed_ip": ""}
+        self.client.update_user(entry.key, fields)
 
     def describe(self, reservation: Reservation) -> str:
         r = reservation
@@ -185,7 +191,7 @@ class UnifiProvider:
     def check(self) -> str:
         users = self.client.list_known()
         network_id = self.network_id()
-        reservations = self.list_reservations()
+        reservations = [e for e in self._entries(users) if e.reservation is not None]
         return f"{len(reservations)} reservations, {len(users)} known clients, network {network_id}"
 
     # Client inventory (the provider's clients page)
