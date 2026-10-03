@@ -1,6 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.roles import get_dhcp
@@ -8,6 +9,7 @@ from app.db import get_db
 from app.enforcement.sync import apply_sync, plan_sync
 from app.providers.base import ProviderError
 from app.providers.runtime import DhcpRef
+from app.syncmode import SyncMode, set_sync_mode
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -39,3 +41,18 @@ def sync_apply(db: Session = Depends(get_db), dhcp: DhcpRef | None = Depends(get
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
     db.commit()
     return diff.as_dict(store.describe)
+
+
+class ModeIn(BaseModel):
+    mode: SyncMode
+
+
+@router.post("/mode")
+def sync_mode(body: ModeIn, db: Session = Depends(get_db),
+              dhcp: DhcpRef | None = Depends(get_dhcp)) -> dict[str, Any]:
+    """Provider-neutral enforcement switch; the UI shows it to admins only (the API trusts the internal token)."""
+    if body.mode == "apply" and dhcp is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "no DHCP provider with reservations: cannot enforce")
+    set_sync_mode(db, body.mode, actor="web")
+    db.commit()
+    return {"mode": body.mode}

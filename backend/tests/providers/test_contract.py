@@ -12,7 +12,7 @@ from app.providers.base import CAPABILITY_PROTOCOL, Capability, Role
 SPECS = registry.all_specs()
 APP = Path(__file__).resolve().parents[2] / "app"
 PROVIDERS = APP / "providers"
-CORE_COMMANDS = {"import-csv", "sync"}   # the subcommands app/cli.py defines itself
+CORE_COMMANDS = {"import-csv", "sync", "sync-mode"}   # the subcommands app/cli.py defines itself
 
 
 def test_there_is_at_least_one_provider():

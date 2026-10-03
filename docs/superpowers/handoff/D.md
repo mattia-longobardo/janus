@@ -20,3 +20,15 @@
 ## Hardware verification
 - Pending: the D4 checklist (task D4 in the plan) on the real controller. Record there the UniFi Network version,
   endpoint differences found and the fixes applied.
+
+D4 checklist (summary of the plan task, with the enforcement step made explicit):
+1. Create a local UniFi user (Site Admin, no 2FA), e.g. `janus`.
+2. Settings → Network providers: DHCP = UniFi; DNS = Pi-hole or None. "Test connection" must answer `ok`.
+3. Still in `dry-run`: `GET /api/sync/plan` must list the hand-set fixed IPs in `unmanaged` and have an **empty**
+   `to_remove`.
+4. Switch to `apply`: Settings → Access control → Enforcement → "Switch to apply…" (admins only; it shows the plan
+   counts before confirming), or `janus sync-mode apply` in the worker container. The Pi-hole `cutover` command does
+   not apply to UniFi.
+5. Approve a test device → fixed IP in UniFi; block it → blocked in UniFi; unblock it.
+6. Test guest (after E): no fixed IP, note `janus:guest`, removed at expiry.
+7. Switch back with "Switch to dry-run" / `janus sync-mode dry-run` if anything looks wrong.

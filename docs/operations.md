@@ -34,6 +34,7 @@ Inside the `janus` container:
 |---|---|
 | `import-csv <file> [--dry-run]` | Import devices from a CSV export and infer group ranges |
 | `sync [--apply]` | Show (or apply) the reservation diff of the DHCP provider now (generic) |
+| `sync-mode apply\|dry-run` | Switch enforcement for any DHCP provider (refused without one taking reservations); records a `sync.mode` event |
 | `preflight` | Check that the DHCP cutover can start; non-zero exit while something blocks |
 | `backup` | Save a Pi-hole Teleporter export and a Janus data dump to `janus/backups/<timestamp>/` |
 | `cutover --pihole-password-env VAR` | Enable Pi-hole DHCP with the quarantine pool and switch Janus to `apply` |

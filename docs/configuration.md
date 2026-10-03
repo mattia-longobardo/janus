@@ -131,4 +131,4 @@ guest's own expiry replaces both rules.
 - **Notifications:** per-event channel (Gotify, e-mail) and Gotify priority, quiet hours, time zone, test messages.
 - **Maintenance windows:** recurring periods that mute offline and infrastructure alerts and pause scheduled scans.
 - **Groups:** IP range, default access, offline alert threshold, port scan on/off and interval.
-- **Sync mode:** `dry-run` / `apply`, changed only by the `cutover` and `rollback` commands.
+- **Sync mode:** `dry-run` / `apply`. Pi-hole's `cutover` and `rollback` commands set it as part of the DHCP takeover; for any other DHCP provider (UniFi) use Settings → Access control → Enforcement (admins only: switching to `apply` first shows the counts of `GET /api/sync/plan` and asks for confirmation), `POST /api/sync/mode {"mode": "apply" | "dry-run"}` or `janus sync-mode apply|dry-run`. Switching to `apply` is refused (409) without a DHCP provider that takes reservations. The backend does not check the user's role: like every API route it trusts the internal token, and the admin-only rule lives in the UI.

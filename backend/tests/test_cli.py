@@ -51,3 +51,30 @@ def test_provider_commands_are_registered(capsys):
         cli.main(["--help"])
     usage = capsys.readouterr().out
     assert all(name in usage for name in ("preflight", "backup", "cutover", "rollback"))
+
+
+def test_sync_mode_switches_enforcement(db, monkeypatch, capsys):
+    from app.syncmode import load_sync_mode, set_sync_mode
+
+    set_sync_mode(db, "dry-run", actor="test")
+    monkeypatch.setattr(cli, "reservation_provider", lambda _db: ("demo", frozenset({Policy.FULL}), FakeStore))
+    assert cli.main(["sync-mode", "apply"]) == 0
+    assert load_sync_mode(db) == "apply"
+    assert cli.main(["sync-mode", "dry-run"]) == 0
+    assert load_sync_mode(db) == "dry-run"
+    assert "dry-run" in capsys.readouterr().out
+
+
+def test_sync_mode_apply_refuses_without_a_dhcp_provider(db, monkeypatch, capsys):
+    from app.syncmode import load_sync_mode, set_sync_mode
+
+    set_sync_mode(db, "dry-run", actor="test")
+    monkeypatch.setattr(settings, "dhcp_provider", "none")
+    assert cli.main(["sync-mode", "apply"]) == 2
+    assert "no DHCP provider" in capsys.readouterr().err
+    assert load_sync_mode(db) == "dry-run"
+
+
+def test_sync_mode_refuses_an_unknown_mode():
+    with pytest.raises(SystemExit):
+        cli.main(["sync-mode", "yolo"])

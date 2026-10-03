@@ -11,6 +11,7 @@ vi.mock("@/lib/use-resource", () => ({
 
 // Extra sections load their own data; this file only covers the built-in cards.
 vi.mock("@/app/(app)/settings/sections", () => ({ EXTRA_SECTIONS: [] }));
+vi.mock("@/lib/auth/client", () => ({ authClient: { useSession: () => ({ data: null }) } }));
 
 vi.mock("@/lib/settings-context", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/lib/settings-context")>();

@@ -17,6 +17,7 @@ import type { AppSettings, MaintenanceWindow, NetworkField } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
 
 import { EXTRA_SECTIONS } from "./sections";
+import { EnforcementSwitch } from "./sections/enforcement";
 import { SectionCard } from "./sections/section-card";
 
 const DURATIONS = [5, 10, 15, 30, 45, 60, 90, 120];
@@ -289,6 +290,7 @@ export default function SettingsPage() {
                 }
                 on={applying && Boolean(dhcp)}
               />
+              <EnforcementSwitch mode={settings.sync_mode} hasDhcp={hasCapability(features, "dhcp", "reservations")} onChanged={reload} />
             </div>
           </SectionCard>
         </div>
