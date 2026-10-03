@@ -16,9 +16,37 @@ describe("DeviceTable", () => {
     const row = screen.getByRole("row", { name: /TV_SALA/ });
     expect(within(row).getByRole("link", { name: "TV_SALA" }).getAttribute("href")).toBe("/devices/d1");
     expect(within(row).getByText("Streaming")).toBeTruthy();
-    expect(within(row).getByText("192.168.1.155")).toBeTruthy();
+    // The desktop column and the phone line under the name both carry the IP and status.
+    expect(within(row).getAllByText("192.168.1.155")).toHaveLength(2);
     expect(within(row).getByText("private MAC")).toBeTruthy();
-    expect(within(row).getByText("Offline")).toBeTruthy();
+    expect(within(row).getAllByText("Offline")).toHaveLength(2);
+  });
+
+  it("folds status and IP under the name on phones, beside the badges", () => {
+    render(
+      <DeviceTable
+        devices={[
+          makeDevice({ id: "d1", name: "GATEWAY", static_ip: null, last_ip: "192.168.1.1", private_mac: true, online: true }),
+          makeDevice({ id: "d2", name: "TV", static_ip: "192.168.1.155", online: false }),
+        ]}
+        groups={[makeGroup()]}
+        onDelete={() => {}}
+      />,
+    );
+    const gateway = screen.getByRole("row", { name: /GATEWAY/ });
+    const nameCell = within(gateway).getByRole("link", { name: "GATEWAY" }).closest("td") as HTMLElement;
+    expect(within(nameCell).getByText("private MAC")).toBeTruthy();
+    const meta = nameCell.querySelector("[data-mobile-meta]") as HTMLElement;
+    expect(meta.className).toContain("sm:hidden");
+    expect(meta.textContent).toBe("Online192.168.1.1");
+    expect(within(nameCell).queryByRole("button")).toBeNull();
+    // The other columns only appear from the sm breakpoint up.
+    const cells = [...gateway.querySelectorAll("td")];
+    expect(cells.filter((td) => !td.classList.contains("hidden"))).toHaveLength(2);
+    const tv = screen.getByRole("row", { name: /TV/ }).querySelector("[data-mobile-meta]") as HTMLElement;
+    expect(tv.textContent).toBe("Offline192.168.1.155");
+    const headers = screen.getAllByRole("columnheader").filter((th) => !th.className.includes("hidden"));
+    expect(headers.map((th) => th.textContent)).toEqual(["Name", "Actions"]);
   });
 
   it("pages through every device and remembers the page size", async () => {

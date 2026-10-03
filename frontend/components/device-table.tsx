@@ -15,9 +15,10 @@ import type { Device, Group } from "@/lib/types";
 type SortKey = "status" | "name" | "group" | "ip" | "mac" | "vendor" | "seen";
 type SortDir = "asc" | "desc";
 
-const COLUMNS: { key: SortKey; label: string }[] = [
+// On phones only the name column (with status and IP folded under it) is shown, so it is the only header there.
+const COLUMNS: { key: SortKey; label: string; mobile?: boolean }[] = [
   { key: "status", label: "Status" },
-  { key: "name", label: "Name" },
+  { key: "name", label: "Name", mobile: true },
   { key: "group", label: "Group" },
   { key: "ip", label: "Static IP" },
   { key: "mac", label: "MAC" },
@@ -102,7 +103,7 @@ export function DeviceTable({
   return (
     <>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[920px] text-sm [&_td]:whitespace-nowrap">
+        <table className="w-full table-fixed text-sm sm:min-w-[920px] sm:table-auto sm:[&_td]:whitespace-nowrap">
           <thead>
             <tr className="border-y border-line text-left text-xs uppercase tracking-[.06em] text-faint">
               {COLUMNS.map((column) => {
@@ -113,7 +114,7 @@ export function DeviceTable({
                     key={column.key}
                     scope="col"
                     aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-                    className="px-4 py-1.5 font-medium"
+                    className={`px-4 py-1.5 font-medium ${column.mobile ? "" : "hidden sm:table-cell"}`}
                   >
                     <button
                       type="button"
@@ -139,7 +140,7 @@ export function DeviceTable({
               const { Icon, color } = deviceLook(d, groups, guest);
               return (
                 <tr key={d.id} className="border-b border-row hover:bg-card2">
-                  <td className="px-4 py-2.5">
+                  <td className="hidden sm:table-cell px-4 py-2.5">
                     <span className="flex items-center gap-2 text-text2">
                       <StatusDot online={d.online} />
                       {d.online ? "Online" : "Offline"}
@@ -148,23 +149,32 @@ export function DeviceTable({
                   <td className="px-4 py-2.5 font-medium">
                     <span className="flex items-center gap-3">
                       <IconTile Icon={Icon} color={color} size={30} muted={!d.online} />
-                      <span className="flex flex-wrap items-center gap-2">
-                        <Link href={`/devices/${d.id}`} className="text-text hover:underline">
-                          {d.name}
-                        </Link>
-                        <HealthIcon device={d} />
-                        {d.private_mac && <Badge tone="accent">private MAC</Badge>}
-                        {(d.access === "lan_only" || d.access === "blocked") && (
-                          <Badge tone={d.access === "blocked" ? "bad" : "neutral"}>{ACCESS_LABELS[d.access]}</Badge>
-                        )}
+                      <span className="flex min-w-0 flex-col gap-1">
+                        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                          <Link href={`/devices/${d.id}`} className="min-w-0 break-words text-text hover:underline">
+                            {d.name}
+                          </Link>
+                          <HealthIcon device={d} />
+                          {d.private_mac && <Badge tone="accent">private MAC</Badge>}
+                          {(d.access === "lan_only" || d.access === "blocked") && (
+                            <Badge tone={d.access === "blocked" ? "bad" : "neutral"}>{ACCESS_LABELS[d.access]}</Badge>
+                          )}
+                        </span>
+                        <span data-mobile-meta className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs font-normal text-text2 sm:hidden">
+                          <span className="flex items-center gap-1.5">
+                            <StatusDot online={d.online} />
+                            {d.online ? "Online" : "Offline"}
+                          </span>
+                          <span className={`font-mono ${d.static_ip ? "" : "text-faint"}`}>{deviceIp(d) ?? "—"}</span>
+                        </span>
                       </span>
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-muted">{g?.name ?? "—"}</td>
-                  <td className="px-4 py-2.5 font-mono text-[13px]">{d.static_ip ?? <span className="text-faint">{d.last_ip ?? "—"}</span>}</td>
-                  <td className="px-4 py-2.5 font-mono text-[13px] text-muted">{d.mac ?? "—"}</td>
-                  <td className="max-w-44 truncate px-4 py-2.5 text-muted" title={d.vendor ?? undefined}>{d.vendor ?? "—"}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-faint" title={formatDateTime(d.last_seen, settings.timezone, settings.time_format)}>
+                  <td className="hidden sm:table-cell px-4 py-2.5 text-muted">{g?.name ?? "—"}</td>
+                  <td className="hidden sm:table-cell px-4 py-2.5 font-mono text-[13px]">{d.static_ip ?? <span className="text-faint">{d.last_ip ?? "—"}</span>}</td>
+                  <td className="hidden sm:table-cell px-4 py-2.5 font-mono text-[13px] text-muted">{d.mac ?? "—"}</td>
+                  <td className="hidden sm:table-cell max-w-44 truncate px-4 py-2.5 text-muted" title={d.vendor ?? undefined}>{d.vendor ?? "—"}</td>
+                  <td className="hidden sm:table-cell px-4 py-2.5 font-mono text-xs text-faint" title={formatDateTime(d.last_seen, settings.timezone, settings.time_format)}>
                     {d.online ? "now" : relativeTime(d.last_seen)}
                   </td>
                   {onDelete && (
