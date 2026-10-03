@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BOX_HEADER, NODE_H, NODE_W, TIER_H, TIER_W, autoLayout, groupBoxes, groupKey, nodeSize, roleOf, topology, wires } from "@/lib/map-layout";
+import { BOX_HEADER, NODE_H, NODE_W, PHONE_ZOOM, TIER_H, TIER_W, autoLayout, groupBoxes, groupKey, nodeSize, phoneViewport, roleOf, topology, wires } from "@/lib/map-layout";
 import { makeDevice, makeGroup } from "@/lib/test-data";
 
 const GATEWAY = "192.168.1.1";
@@ -125,5 +125,26 @@ describe("wired uplinks shape the tree", () => {
     const w = wires(devices, groups, GATEWAY, positions, boxes, links);
     const p1 = positions.p1;
     expect(w.solid.some(([x1, , x2, y2]) => x1 === x2 && x1 === p1.x + TIER_W / 2 && y2 === p1.y)).toBe(true);
+  });
+});
+
+describe("phoneViewport", () => {
+  it("centres the modem horizontally at a readable zoom, just below the zoom controls", () => {
+    const view = phoneViewport({ x: 400, y: 20 }, 358);
+    expect(view.zoom).toBe(PHONE_ZOOM);
+    expect(PHONE_ZOOM).toBeGreaterThanOrEqual(0.7);
+    expect(PHONE_ZOOM).toBeLessThanOrEqual(0.9);
+    // Screen position of the modem centre = flow position * zoom + offset.
+    expect((400 + TIER_W / 2) * view.zoom + view.x).toBeCloseTo(179);
+    expect(20 * view.zoom + view.y).toBeCloseTo(56);
+  });
+
+  it("starts on the modem of a real auto layout", () => {
+    const devices = [makeDevice({ id: "gw", static_ip: GATEWAY }), makeDevice({ id: "m", group_id: 2, static_ip: "192.168.1.10" })];
+    const positions = autoLayout(devices, groups, GATEWAY);
+    const { modem } = wires(devices, groups, GATEWAY, positions, groupBoxes(devices, groups, GATEWAY, positions));
+    const view = phoneViewport(modem, 390, 0.9);
+    expect(view.zoom).toBe(0.9);
+    expect((modem.x + TIER_W / 2) * 0.9 + view.x).toBeCloseTo(195);
   });
 });

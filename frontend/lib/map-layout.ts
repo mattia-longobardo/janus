@@ -291,3 +291,12 @@ export function wires(
   dashed.push([busLeft, busY, busRight, busY]);
   return { modem, solid, dashed, badge: { x: busLeft + 22, y: busY - 11 } };
 }
+
+export const PHONE_ZOOM = 0.8;
+const PHONE_TOP = 56;
+
+// Phones start at a readable zoom on the top of the topology (ISP modem, gateway, first tier), centred on the
+// modem, instead of shrinking the whole graph into a 390px canvas; the user pans and pinches from there.
+export function phoneViewport(modem: Point, canvasWidth: number, zoom = PHONE_ZOOM): { x: number; y: number; zoom: number } {
+  return { x: canvasWidth / 2 - (modem.x + TIER_W / 2) * zoom, y: PHONE_TOP - modem.y * zoom, zoom };
+}

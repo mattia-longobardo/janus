@@ -22,7 +22,7 @@ import clsx from "clsx";
 import { toPng } from "html-to-image";
 import { AlertTriangle, Maximize, Minus, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { HEALTH_COLOR, healthTitle } from "@/components/health";
 import { useResolvedTheme } from "@/components/theme-toggle";
@@ -39,6 +39,7 @@ import {
   groupBoxes,
   groupKey,
   nodeSize,
+  phoneViewport,
   roleOf,
   topology,
   wires,
@@ -53,8 +54,12 @@ const FIT = { padding: { top: "96px", right: "24px", bottom: "72px", left: "24px
 // Phones keep only the zoom row inside the canvas (stats, legend and uplink picker sit outside it), so the graph can use nearly all of it.
 const FIT_PHONE = { padding: { top: "56px", right: "12px", bottom: "12px", left: "12px" } } as const;
 
+function isPhone() {
+  return typeof window !== "undefined" && Boolean(window.matchMedia?.("(max-width: 639px)").matches);
+}
+
 function fitOptions() {
-  return typeof window !== "undefined" && window.matchMedia?.("(max-width: 639px)").matches ? FIT_PHONE : FIT;
+  return isPhone() ? FIT_PHONE : FIT;
 }
 type DeviceData = { device: Device; groups: Group[]; showIp: boolean; w: number; h: number; gateway: boolean };
 type BoxData = { label: string; color: string; range: string; count: number; pending: boolean };
@@ -206,21 +211,33 @@ function MapCanvas() {
     setPositions((current) => ({ ...auto, ...saved, ...current }));
   }, [devicesRes.data, groupsRes.data, mapRes.data, devices, groups, gatewayIp]);
 
-  const [fitted, setFitted] = useState(false);
-  useEffect(() => {
-    if (fitted || Object.keys(positions).length === 0) return;
-    const id = window.setTimeout(() => {
-      void flow.fitView(fitOptions());
-      setFitted(true);
-    }, 80);
-    return () => window.clearTimeout(id);
-  }, [fitted, positions, flow]);
-
   const boxes = useMemo(() => groupBoxes(devices, groups, gatewayIp, positions, links), [devices, groups, gatewayIp, positions, links]);
   const wiring = useMemo(
     () => wires(devices, groups, gatewayIp, positions, boxes, links),
     [devices, groups, gatewayIp, positions, boxes, links],
   );
+
+  // The starting view: the whole graph on desktop; on phones a readable zoom on the top of the topology
+  // (fitting everything into 390px leaves nodes ~10px tall). The Fit button still shows everything.
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const modemRef = useRef(wiring.modem);
+  useEffect(() => {
+    modemRef.current = wiring.modem;
+  }, [wiring.modem]);
+  const resetView = useCallback(() => {
+    if (isPhone()) void flow.setViewport(phoneViewport(modemRef.current, canvasRef.current?.clientWidth ?? window.innerWidth));
+    else void flow.fitView(FIT);
+  }, [flow]);
+
+  const [fitted, setFitted] = useState(false);
+  useEffect(() => {
+    if (fitted || Object.keys(positions).length === 0) return;
+    const id = window.setTimeout(() => {
+      resetView();
+      setFitted(true);
+    }, 80);
+    return () => window.clearTimeout(id);
+  }, [fitted, positions, resetView]);
 
   const boxInfo = useCallback(
     (box: Box): BoxData => {
@@ -366,7 +383,7 @@ function MapCanvas() {
     await api.put("/map/positions", devices.filter((d) => next[d.id]).map((d) => ({ device_id: d.id, ...next[d.id] })));
     setDirty(false);
     await mapRes.reload();
-    window.setTimeout(() => void flow.fitView(fitOptions()), 80);
+    window.setTimeout(resetView, 80);
   }
 
   async function openDevice(node: Node) {
@@ -378,7 +395,7 @@ function MapCanvas() {
   function arrange() {
     setPositions(autoLayout(devices, groups, gatewayIp, links));
     setDirty(true);
-    window.setTimeout(() => void flow.fitView(fitOptions()), 50);
+    window.setTimeout(resetView, 50);
   }
 
   async function save() {
@@ -434,7 +451,8 @@ function MapCanvas() {
         <MapLegend className="flex" />
       </div>
       <div
-        className="relative h-[70dvh] min-h-[420px] overflow-hidden rounded-[14px] border border-line sm:h-[calc(100dvh-190px)] sm:min-h-[560px]"
+        ref={canvasRef}
+        className="relative h-[60dvh] min-h-[360px] overflow-hidden rounded-[14px] border border-line sm:h-[calc(100dvh-190px)] sm:min-h-[560px]"
         style={{ backgroundColor: "var(--canvas)" }}
       >
         <ReactFlow
@@ -450,8 +468,8 @@ function MapCanvas() {
           connectionRadius={60}
           connectionLineStyle={{ stroke: linkKind === "wifi" ? "var(--ok)" : "var(--accent)", strokeWidth: 1.5, strokeDasharray: linkKind === "wifi" ? "5 4" : undefined }}
           colorMode={theme}
-          fitView
-          fitViewOptions={fitOptions()}
+          fitView={!isPhone()}
+          fitViewOptions={FIT}
           minZoom={0.2}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
@@ -490,6 +508,7 @@ function MapCanvas() {
           </span>
         )}
       </div>
+      <p className="mt-2 text-center text-xs text-faint sm:hidden">Pinch to zoom · drag to pan</p>
       <UplinkPicker kind={linkKind} onKind={setLinkKind} className="mt-3 flex sm:hidden" />
     </>
   );
