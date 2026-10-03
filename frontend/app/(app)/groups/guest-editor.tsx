@@ -6,7 +6,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { HoursRule } from "@/components/hours-rule";
 import { ColorPicker, IconPicker } from "@/components/look-picker";
 import { errorField } from "@/components/settings-network";
-import { Button, Card, Field, inputClass } from "@/components/ui";
+import { Button, Card, Field, Notice, inputClass } from "@/components/ui";
 import { ApiError, api, errorText } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
 import { GUEST_COLOR, GUEST_ICON } from "@/lib/group-icons";
@@ -60,12 +60,22 @@ export function GuestEditor({
   const icon = res.data?.icon ?? GUEST_ICON;
 
   // Depends on the values, not the response object: a refetch must not wipe what the user is typing.
+  // Look and rules re-sync only when they change on the server.
   useEffect(() => {
     if (!loaded) return;
-    const next: Draft = { color, icon, start: guest_start, end: guest_end, auto: toRule(auto, 24), idle: toRule(idle, 6) };
-    setSaved(next);
-    setDraft(next);
-  }, [loaded, color, icon, auto, idle, guest_start, guest_end]);
+    const rules = { color, icon, auto: toRule(auto, 24), idle: toRule(idle, 6) };
+    const sync = (d: Draft | undefined): Draft => ({ start: guest_start, end: guest_end, ...d, ...rules });
+    setSaved(sync);
+    setDraft(sync);
+    // The pool is left out on purpose: the effect below syncs it.
+  }, [loaded, color, icon, auto, idle]);
+
+  // A saved pool re-syncs only the pool fields, so a refused rule or look edit stays in the form.
+  useEffect(() => {
+    const sync = (d: Draft | undefined) => d && { ...d, start: guest_start, end: guest_end };
+    setSaved(sync);
+    setDraft(sync);
+  }, [guest_start, guest_end]);
 
   const view = draft ?? { color, icon, start: guest_start, end: guest_end, auto: toRule(null, 24), idle: toRule(null, 6) };
   const set = (patch: Partial<Draft>) => setDraft({ ...view, ...patch });
@@ -154,6 +164,7 @@ export function GuestEditor({
 
   return (
     <Card className="p-6">
+      {res.error && <Notice tone="error">Guest settings could not be loaded: {res.error}</Notice>}
       <form onSubmit={save} noValidate className="flex flex-col gap-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-[22px] font-bold">Guests</h2>

@@ -6,6 +6,7 @@ import GroupsPage from "@/app/(app)/groups/page";
 import { ApiError, api } from "@/lib/api";
 import * as featuresModule from "@/lib/features";
 import * as settingsModule from "@/lib/settings-context";
+import { GUEST_COLOR, GuestIconDefault, guestLook } from "@/lib/group-icons";
 import { makeGroup } from "@/lib/test-data";
 import type { Features, GuestSettings, ProviderRef } from "@/lib/types";
 
@@ -14,13 +15,14 @@ const GROUPS = [makeGroup({ id: 1, name: "People" }), makeGroup({ id: 2, name: "
 const state = vi.hoisted(() => ({
   rules: { auto_remove_hours: null, inactive_remove_hours: 6, color: "#4FC3D9", icon: "guest" } as GuestSettings,
   reloadRules: async () => {},
+  rulesError: null as string | null,
 }));
 const NONE: never[] = [];
 
 vi.mock("@/lib/use-resource", () => ({
   useResource: (path: string) => ({
     data: path === "/groups" ? GROUPS : path === "/guests/settings" ? state.rules : NONE,
-    error: null,
+    error: path === "/guests/settings" ? state.rulesError : null,
     loading: false,
     reload: path === "/guests/settings" ? state.reloadRules : async () => {},
   }),
@@ -62,6 +64,15 @@ describe("GroupsPage hours inputs", () => {
       const wrapper = screen.getByLabelText(label).parentElement as HTMLElement;
       expect(wrapper.querySelector("[data-suffix]")?.textContent).toBe("h");
     }
+  });
+});
+
+describe("guestLook", () => {
+  it("falls back to the default look for an invalid colour or an unknown icon", () => {
+    const look = guestLook({ guests: { enabled: true, pool: false, color: "red", icon: "nope" } });
+    expect(look.color).toBe(GUEST_COLOR);
+    expect(look.Icon).toBe(GuestIconDefault);
+    expect(guestLook({ guests: { enabled: true, pool: false, color: "#E58FB8", icon: "" } }).Icon).toBe(GuestIconDefault);
   });
 });
 
@@ -182,5 +193,43 @@ describe("GroupsPage guests editor", () => {
     const row = screen.getByRole("button", { name: /^Guests/ });
     expect(row.textContent).toContain(".200–.229");
     expect((row.querySelector("[aria-hidden]") as HTMLElement).style.color).toBe("rgb(229, 143, 184)");
+  });
+
+  it("keeps the refused rule and look edits when only the pool was saved", async () => {
+    state.rules = { auto_remove_hours: null, inactive_remove_hours: null, color: "#4FC3D9", icon: "guest" };
+    let current = settingsModule.DEFAULT_SETTINGS;
+    const reloadSettings = vi.fn(async () => {
+      current = { ...current, network: { ...current.network, guest_start: "192.168.1.200", guest_end: "192.168.1.229" } };
+    });
+    vi.spyOn(settingsModule, "useSettings").mockImplementation(() => ({ settings: current, reload: reloadSettings }));
+    vi.spyOn(featuresModule, "useFeatures").mockReturnValue({ features: guests, reload: async () => {} });
+    vi.spyOn(api, "put").mockImplementation(async (path: string) => {
+      if (path === "/guests/settings") throw new ApiError(422, "icon: too long");
+      return {};
+    });
+    render(<GroupsPage />);
+    await userEvent.click(screen.getByRole("button", { name: /^Guests/ }));
+    await userEvent.type(screen.getByLabelText("Range start"), "192.168.1.200");
+    await userEvent.type(screen.getByLabelText("Range end"), "192.168.1.229");
+    await userEvent.click(screen.getByRole("button", { name: "Color #E58FB8" }));
+    await userEvent.click(screen.getByLabelText("Remove guests after a fixed time"));
+    await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("icon: too long");
+    expect(reloadSettings).toHaveBeenCalled();
+    expect((screen.getByLabelText("Range start") as HTMLInputElement).value).toBe("192.168.1.200");
+    expect((screen.getByLabelText("Remove guests after a fixed time") as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: "Color #E58FB8" }).getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("says when the guest settings cannot be loaded", async () => {
+    state.rules = undefined as unknown as GuestSettings;
+    state.rulesError = "Server error";
+    try {
+      await openGuests();
+      expect(screen.getByRole("alert").textContent).toBe("Guest settings could not be loaded: Server error");
+    } finally {
+      state.rulesError = null;
+    }
   });
 });

@@ -49,6 +49,18 @@ SETTINGS = OverlayStore("guests.settings", [
 ])
 
 
+def look(db: Session) -> dict[str, str]:
+    """The guests' colour and icon; a stored value that no longer passes validation falls back to the default."""
+    stored = SETTINGS.load(db)
+    out = {}
+    for name, check in (("color", _color), ("icon", _icon)):
+        try:
+            out[name] = check(stored[name])
+        except SettingsError:
+            out[name] = SETTINGS.fields[name].default()
+    return out
+
+
 def resolve_expiry(*, now: datetime, tz: ZoneInfo, expires_at: datetime | None = None,
                    expires_in_hours: float | None = None, expires_on: date | None = None) -> datetime | None:
     if sum(v is not None for v in (expires_at, expires_in_hours, expires_on)) > 1:

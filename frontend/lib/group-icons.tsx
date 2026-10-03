@@ -43,8 +43,15 @@ export function iconFor(key: string | undefined): LucideIcon {
   return (key && GROUP_ICONS[key]) || Monitor;
 }
 
+export const GuestIconDefault = UserRound;
+
+// Falls back to the default look for a colour or icon this build cannot draw.
 export function guestLook(features: Features | null | undefined): Look {
-  return { Icon: iconFor(features?.guests?.icon ?? GUEST_ICON), color: features?.guests?.color ?? GUEST_COLOR };
+  const { color, icon } = features?.guests ?? {};
+  return {
+    Icon: (icon && GROUP_ICONS[icon]) || GuestIconDefault,
+    color: color && /^#[0-9A-Fa-f]{6}$/.test(color) ? color : GUEST_COLOR,
+  };
 }
 
 export function deviceLook(device: Device, groups: Group[], guest: Look = guestLook(null)): Look {

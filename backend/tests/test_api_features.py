@@ -73,3 +73,13 @@ def test_a_failing_provider_rolls_the_session_back_before_the_next(monkeypatch):
     monkeypatch.setattr(features, "FEATURE_PROVIDERS", {"notify": boom, "guests": next_one})
     assert features.collect(Session()) == {"notify": {}, "guests": {"ok": True}}
     assert calls == ["boom", "rollback", "next"]
+
+
+def test_guests_feature_falls_back_to_the_default_look_for_bad_stored_values(client, db):
+    from app.models import Setting
+    with fake_pihole():
+        pc.save_role(db, Role.DHCP, None, None)
+    db.merge(Setting(key="guests.settings", value={"color": "red", "icon": ""}))
+    db.commit()
+    guests = client.get("/api/features").json()["guests"]
+    assert (guests["color"], guests["icon"]) == ("#4FC3D9", "guest")
