@@ -42,4 +42,25 @@ describe("IntegrationsSection", () => {
     const save = (await screen.findByRole("button", { name: "Save integrations" })) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
   });
+
+  it("returns a replaced secret to the set view after saving", async () => {
+    const set = { ...VIEW, gotify: { ...VIEW.gotify, values: { url: "", token: true } } };
+    vi.spyOn(api, "get").mockResolvedValue(set);
+    vi.spyOn(api, "put").mockResolvedValue(set);
+    render(<IntegrationsSection />);
+    await userEvent.click(await screen.findByRole("button", { name: "Change Gotify token" }));
+    await userEvent.type(screen.getByLabelText("Gotify token"), "new");
+    await userEvent.click(screen.getByRole("button", { name: "Save integrations" }));
+    expect(await screen.findByText("Saved")).toBeTruthy();
+    expect(screen.queryByLabelText("Gotify token")).toBeNull();
+    expect(screen.getAllByText("•••• set").length).toBeGreaterThan(0);
+  });
+
+  it("treats an emptied port as unchanged", async () => {
+    vi.spyOn(api, "get").mockResolvedValue(VIEW);
+    render(<IntegrationsSection />);
+    const port = await screen.findByLabelText("SMTP port");
+    await userEvent.clear(port);
+    expect((screen.getByRole("button", { name: "Save integrations" }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });

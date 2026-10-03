@@ -11,7 +11,7 @@ import { useResource } from "@/lib/use-resource";
 
 type Draft = {
   gotify: { url?: string; token?: string };
-  email: { host?: string; port?: number; security?: EmailValues["security"]; user?: string; password?: string; sender?: string };
+  email: { host?: string; port?: string; security?: EmailValues["security"]; user?: string; password?: string; sender?: string };
 };
 
 const EMPTY: Draft = { gotify: {}, email: {} };
@@ -36,6 +36,7 @@ export function IntegrationsSection() {
   const { reload: reloadFeatures } = useFeatures();
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [busy, setBusy] = useState(false);
+  const [saves, setSaves] = useState(0);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string }>();
 
   if (!data) {
@@ -52,7 +53,9 @@ export function IntegrationsSection() {
   const setE = (patch: Draft["email"]) => setDraft((d) => ({ ...d, email: { ...d.email, ...patch } }));
 
   const gotify = changed<GotifyValues>(draft.gotify, g);
-  const email = changed<EmailValues>(draft.email, e);
+  // An emptied port counts as untouched rather than 0.
+  const { port, ...emailRest } = draft.email;
+  const email = changed<EmailValues>({ ...emailRest, port: port?.trim() ? Number(port) : undefined }, e);
   const body = {
     ...(Object.keys(gotify).length ? { gotify } : {}),
     ...(Object.keys(email).length ? { email } : {}),
@@ -64,6 +67,7 @@ export function IntegrationsSection() {
     try {
       setData(await api.put<ChannelsView>("/notifications/channels", body));
       setDraft(EMPTY);
+      setSaves((n) => n + 1);
       await reloadFeatures();
       setNotice({ tone: "success", text: "Saved" });
     } catch (err) {
@@ -81,7 +85,7 @@ export function IntegrationsSection() {
         <Field label="Gotify URL">
           <input className={`${inputClass} font-mono`} spellCheck={false} value={draft.gotify.url ?? g.url} onChange={(ev) => setG({ url: ev.target.value })} />
         </Field>
-        <SecretInput key={`g-${data.gotify.values.token}`} label="Gotify token" isSet={g.token} onChange={(token) => setG({ token })} />
+        <SecretInput key={`g-${saves}`} label="Gotify token" isSet={g.token} onChange={(token) => setG({ token })} />
       </div>
       <div className="flex flex-col gap-3.5">
         <Heading name="E-mail" ready={data.email.ready} />
@@ -95,8 +99,8 @@ export function IntegrationsSection() {
               min={1}
               max={65535}
               className={`${inputClass} font-mono`}
-              value={draft.email.port ?? e.port}
-              onChange={(ev) => setE({ port: Number(ev.target.value) })}
+              value={draft.email.port ?? String(e.port)}
+              onChange={(ev) => setE({ port: ev.target.value })}
             />
           </Field>
           <Field label="Security">
@@ -113,7 +117,7 @@ export function IntegrationsSection() {
           <Field label="SMTP user">
             <input className={`${inputClass} font-mono`} spellCheck={false} value={draft.email.user ?? e.user} onChange={(ev) => setE({ user: ev.target.value })} />
           </Field>
-          <SecretInput key={`e-${e.password}`} label="SMTP password" isSet={e.password} onChange={(password) => setE({ password })} />
+          <SecretInput key={`e-${saves}`} label="SMTP password" isSet={e.password} onChange={(password) => setE({ password })} />
           <Field label="Sender address">
             <input className={`${inputClass} font-mono`} spellCheck={false} value={draft.email.sender ?? e.sender} onChange={(ev) => setE({ sender: ev.target.value })} />
           </Field>
