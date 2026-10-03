@@ -72,12 +72,14 @@ message, and the frontend hides the option (`lanOnlyAllowed`). Never degrade sil
 
 - **Never remove entries Janus does not manage.** `list_reservations` returns every entry; return `reservation=None`
   for one you cannot interpret as Janus' own. The diff reports it and never deletes it. Only entries that are Janus'
-  (recognised by the canonical format you write) may be removed.
+  (recognised by the canonical format you write) may be removed. Mark ownership in whatever the router lets you
+  write: Pi-hole recognises its own `dhcp-host` line format, UniFi writes `note = "janus:<policy>"` on every client it
+  reserves and treats a client without that note as the admin's own.
 - Return `canonical=False` for a Janus entry written in an outdated format; it is rewritten.
 - Normalise MACs with `app.net.mac.normalize_mac`; never accept duplicate IPs or MACs in what you write.
 - Raise `ProviderError`, never raw `httpx` errors. Use `ProviderError(msg, status=4xx)` for a one-off refusal by a
-  reachable router (`.rejected` is true: the request failed, the provider is not marked down); a transport error or
-  5xx without status marks the role down (`infra.down`).
+  reachable router (`.rejected` is true: the request failed, the provider is not marked down). Transport errors and
+  5xx (anything that is not a 4xx) mark the role down (`infra.down`).
 - Set an explicit timeout on every HTTP call (the template uses 10 s). The worker and web requests share this code.
 - Do not log secrets. Declare them in `secret_fields`; they are stored encrypted and read back as booleans.
 - A provider never imports another provider.
@@ -89,12 +91,41 @@ message, and the frontend hides the option (`lanOnlyAllowed`). Never degrade sil
 Set `SPEC.router` to a FastAPI `APIRouter`; it is mounted at `/api/providers/<kind>` (Pi-hole serves
 `/api/providers/pihole/preflight` there). Use it for provider pages: cutover, client lists, diagnostics.
 
+```python
+# providers/<kind>/api.py
+router = APIRouter(tags=["<kind>"])
+
+@router.get("/clients")                       # served at /api/providers/<kind>/clients
+def clients(db: Session = Depends(get_db)) -> list[dict]:
+    ...
+
+# __init__.py:  SPEC = ProviderSpec(..., router=api.router)
+```
+
 ### `cli` (extra commands)
 
 Set `SPEC.cli` to `register(sub)`, which adds subcommands to the `argparse` subparsers of `janus` (`app/cli.py` calls it
 for every spec). Each command sets `set_defaults(run=run)`; `run(args) -> int` is the exit code. Pi-hole adds
 `preflight`, `backup`, `cutover`, `rollback` this way (`providers/pihole/cli.py`). Names must be unique across providers
 and different from the core commands.
+
+```python
+# providers/<kind>/cli.py
+def register(sub: Any) -> None:
+    sub.add_parser("<command>", help="what it does").set_defaults(run=run)
+
+def run(args: argparse.Namespace) -> int:
+    ...
+    return 0
+
+# __init__.py:  SPEC = ProviderSpec(..., cli=cli.register)
+```
+
+### `HealthCheck` (optional protocol)
+
+If `provider_class` has `check(self) -> str`, Settings "Test connection" calls it (`isinstance(provider, HealthCheck)`):
+make one cheap authenticated call and return a short human summary, or raise `ProviderError` when the router cannot be
+reached. Without it, the button only reports that the provider has no health check. The template has a stub.
 
 ## Config, secrets and the generic form
 

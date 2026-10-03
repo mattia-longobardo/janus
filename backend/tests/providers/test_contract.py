@@ -70,7 +70,7 @@ def test_cli_commands_are_unique_and_do_not_shadow_core_commands():
         if spec.cli is not None:
             try:
                 spec.cli(sub)   # argparse refuses a subcommand name that is already taken
-            except argparse.ArgumentError as exc:
+            except (argparse.ArgumentError, ValueError) as exc:
                 pytest.fail(f"{spec.kind} registers a CLI command that already exists: {exc}")
 
 

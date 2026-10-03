@@ -55,3 +55,9 @@ class TemplateProvider:
     def describe(self, reservation: Reservation) -> str:
         """The line shown in the sync plan (dry-run) for this reservation."""
         return f"{reservation.mac} {reservation.ip or 'dynamic'} {reservation.hostname}"
+
+    # HealthCheck (optional): used by Settings "Test connection". Return a short summary, or raise ProviderError.
+    def check(self) -> str:
+        # TODO(provider-author): make one cheap authenticated call (login, version, ...) and describe the result.
+        self.client.list_reservations()
+        return "Connected"

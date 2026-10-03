@@ -24,4 +24,6 @@ SPEC = ProviderSpec(
     secret_fields=frozenset({"token"}),
     # env_defaults=lambda: {"url": settings.template_url, "token": settings.template_token},   # add the fields to app/config.py
     open=open_provider,
+    # router=api.router,      # extra HTTP API, mounted at /api/providers/<kind> (see the guide, Hooks)
+    # cli=cli.register,       # extra janus subcommands: register(sub) (see the guide, Hooks)
 )
