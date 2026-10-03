@@ -14,6 +14,12 @@ function dayKey(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 }
 
+// The calendar day after a YYYY-MM-DD key (pure date arithmetic, so DST cannot shift it).
+function nextDay(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
 // YYYY-MM-DD of today in the given zone: the earliest date a guest can expire on.
 export function todayIn(timeZone: string, now: Date = new Date()): string {
   return dayKey(now, timeZone);
@@ -36,8 +42,7 @@ export function describeExpiry(
   if (left <= 0) return "expired";
   if (left < HOUR) return `in ${Math.max(1, Math.round(left / 60_000))} min`;
   if (left < 24 * HOUR) return `in ${Math.round(left / HOUR)} h`;
-  const tomorrow = new Date(now.getTime() + 24 * HOUR);
-  if (dayKey(when, timeZone) === dayKey(tomorrow, timeZone)) return `tomorrow ${clock(when, timeZone, fmt)}`;
+  if (dayKey(when, timeZone) === nextDay(dayKey(now, timeZone))) return `tomorrow ${clock(when, timeZone, fmt)}`;
   return formatDateTime(g.effective_expires_at, timeZone, fmt);
 }
 

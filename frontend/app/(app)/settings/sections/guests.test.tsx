@@ -3,6 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ApiError, api } from "@/lib/api";
+import * as featuresModule from "@/lib/features";
+import * as settingsModule from "@/lib/settings-context";
 import { GuestsSection } from "./guests";
 
 describe("GuestsSection", () => {
@@ -48,5 +50,37 @@ describe("GuestsSection", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save guest settings" }));
     await waitFor(() => expect(put).toHaveBeenCalledWith("/guests/settings", { auto_remove_hours: 48, inactive_remove_hours: null }));
     expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it("reloads settings and features after a saved pool even when the rules are refused", async () => {
+    const reloadSettings = vi.fn(async () => {});
+    const reloadFeatures = vi.fn(async () => {});
+    vi.spyOn(settingsModule, "useSettings").mockReturnValue({ settings: settingsModule.DEFAULT_SETTINGS, reload: reloadSettings });
+    vi.spyOn(featuresModule, "useFeatures").mockReturnValue({ features: null, reload: reloadFeatures });
+    vi.spyOn(api, "get").mockResolvedValue({ auto_remove_hours: null, inactive_remove_hours: null });
+    vi.spyOn(api, "put").mockImplementation(async (path: string) => {
+      if (path === "/guests/settings") throw new ApiError(422, "hours must be a whole number between 1 and 8760");
+      return {};
+    });
+    render(<GuestsSection />);
+    await userEvent.type(await screen.findByLabelText("Guest pool from"), "192.168.1.200");
+    await userEvent.type(screen.getByLabelText("Guest pool to"), "192.168.1.229");
+    await userEvent.click(screen.getByLabelText("Remove guests after a fixed time"));
+    await userEvent.click(screen.getByRole("button", { name: "Save guest settings" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("hours must be a whole number between 1 and 8760");
+    expect(reloadSettings).toHaveBeenCalled();
+    expect(reloadFeatures).toHaveBeenCalled();
+  });
+
+  it("asks for the hours instead of sending an empty rule", async () => {
+    vi.spyOn(api, "get").mockResolvedValue({ auto_remove_hours: null, inactive_remove_hours: null });
+    const put = vi.spyOn(api, "put").mockResolvedValue({});
+    render(<GuestsSection />);
+    const hours = screen.getByLabelText("Hours not seen") as HTMLInputElement;
+    await userEvent.click(await screen.findByLabelText("Remove guests not seen for a while"));
+    await userEvent.clear(hours);
+    await userEvent.click(screen.getByRole("button", { name: "Save guest settings" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Enter the hours as a whole number between 1 and 8760.");
+    expect(put).not.toHaveBeenCalled();
   });
 });

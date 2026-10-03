@@ -82,6 +82,12 @@ export function ApproveForm({
     }
   }
 
+  // The panel always starts from the default: a choice made before Cancel must not be sent later.
+  function openGuest(open: boolean) {
+    setExpiry({});
+    setAsGuest(open);
+  }
+
   async function admitGuest() {
     if (!name.trim()) return setError("Enter a name for the guest.");
     setBusy(true);
@@ -191,7 +197,7 @@ export function ApproveForm({
           </span>
           <GuestExpiry rules={rules} onChange={setExpiry} />
           <div className="flex flex-wrap justify-end gap-3">
-            <Button variant="ghost" disabled={busy} onClick={() => setAsGuest(false)}>
+            <Button variant="ghost" disabled={busy} onClick={() => openGuest(false)}>
               Cancel
             </Button>
             <Button variant="primary" disabled={busy} onClick={() => void admitGuest()}>
@@ -210,7 +216,7 @@ export function ApproveForm({
           Reject and block
         </Button>
         {features?.guests?.enabled && !asGuest && (
-          <Button disabled={busy} onClick={() => setAsGuest(true)}>
+          <Button disabled={busy} onClick={() => openGuest(true)}>
             Approve as guest
           </Button>
         )}

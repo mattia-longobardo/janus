@@ -21,6 +21,11 @@ describe("describeExpiry", () => {
     expect(describeExpiry(g, NOW, "12h", "UTC")).toBe("tomorrow 12:00 PM");
     expect(describeExpiry(g, NOW, "24h", "Europe/Rome")).toBe("tomorrow 14:00");
   });
+  it("counts tomorrow by calendar day across a DST change", () => {
+    // 00:30 on 25 Oct in Rome: the day is 25 h long, so now + 24 h is still the 25th.
+    const g = guest({ effective_expires_at: "2026-10-26T11:00:00Z", expiry_source: "device" });
+    expect(describeExpiry(g, new Date("2026-10-24T22:30:00Z"), "24h", "Europe/Rome")).toBe("tomorrow 12:00");
+  });
   it("shows the date further out", () =>
     expect(describeExpiry(guest({ effective_expires_at: "2026-10-10T21:59:59Z", expiry_source: "device" }), NOW, "24h", "Europe/Rome")).toBe("10/10 23:59"));
 });

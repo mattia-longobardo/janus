@@ -16,6 +16,11 @@ function toRule(hours: number | null, fallback: number): Rule {
   return { on: hours !== null, hours: String(hours ?? fallback) };
 }
 
+function validHours(hours: string): boolean {
+  const n = Number(hours.trim());
+  return /^\d+$/.test(hours.trim()) && n >= 1 && n <= 8760;
+}
+
 function ruleValue(rule: Rule): number | null {
   return rule.on ? Number(rule.hours) : null;
 }
@@ -88,16 +93,26 @@ export function GuestsSection() {
   const poolDirty = Object.keys(network).length > 0;
 
   async function save() {
+    if ([view.auto, view.idle].some((r) => r.on && !validHours(r.hours))) {
+      setMessage({ tone: "error", text: "Enter the hours as a whole number between 1 and 8760." });
+      return;
+    }
     setBusy(true);
     setMessage(undefined);
+    let poolSaved = false;
     try {
       // The pool goes first: if it is refused, nothing else changes.
-      if (poolDirty) await api.put("/settings", { network });
+      if (poolDirty) {
+        await api.put("/settings", { network });
+        poolSaved = true;
+      }
       if (rulesDirty) await api.put("/guests/settings", rules);
       await Promise.all([reloadSettings(), reloadFeatures(), rulesRes.reload()]);
       setMessage({ tone: "success", text: "Guest settings saved." });
     } catch (err) {
       setMessage({ tone: "error", text: errorText(err) });
+      // A saved pool changes the settings and the features' pool flag even when the rules were refused.
+      if (poolSaved) await Promise.all([reloadSettings(), reloadFeatures()]);
     } finally {
       setBusy(false);
     }

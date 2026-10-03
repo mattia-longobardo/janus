@@ -120,4 +120,24 @@ describe("ApproveForm", () => {
     const call = fetchSpy.mock.calls.find(([url]) => String(url).endsWith("/devices/dev-1/guest"))!;
     expect(JSON.parse(String(call[1]?.body))).toEqual({ name: "pixel-7" });
   });
+
+  it("forgets the expiry picked before Cancel", async () => {
+    vi.spyOn(featuresModule, "useFeatures").mockReturnValue({ features: { guests: { enabled: true, pool: true } }, reload: async () => {} });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/guests/settings")) return json(200, { auto_remove_hours: null, inactive_remove_hours: null });
+      if (url.endsWith("/devices/dev-1/guest")) return json(200, { ...device, access: "guest" });
+      throw new Error(`unexpected ${url}`);
+    });
+    const onGuest = vi.fn();
+    render(<ApproveForm device={device} groups={groups} onApproved={vi.fn()} onGuest={onGuest} />);
+    await userEvent.click(screen.getByRole("button", { name: "Approve as guest" }));
+    await userEvent.click(screen.getByRole("button", { name: "3 days" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: "Approve as guest" }));
+    await userEvent.click(screen.getByRole("button", { name: "Add as guest" }));
+    await waitFor(() => expect(onGuest).toHaveBeenCalled());
+    const call = fetchSpy.mock.calls.find(([url]) => String(url).endsWith("/devices/dev-1/guest"))!;
+    expect(JSON.parse(String(call[1]?.body))).toEqual({ name: "pixel-7" });
+  });
 });
