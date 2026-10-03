@@ -5,7 +5,7 @@ export const EVENT_TYPES = [
   "device.new", "device.approved", "device.blocked", "device.updated", "device.deleted", "device.offline", "device.ip_mismatch",
   "device.private_mac", "device.gateway", "ip.conflict", "infra.down", "infra.up", "sync.applied", "sync.failed",
   "security.new_port", "security.risky_service", "security.risk_muted", "security.risk_unmuted", "scan.completed", "scan.failed", "maintenance.start",
-  "maintenance.end", "notify.test", "notify.failed", "import.csv",
+  "maintenance.end", "notify.test", "notify.failed", "import.csv", "guest.added", "guest.expired", "guest.removed",
 ];
 
 // "pihole" and "pihole_dns" only appear in events recorded before providers became plugins.
@@ -74,6 +74,12 @@ export function describeEvent(event: Pick<EventItem, "type" | "payload">): strin
       return `Test notification (${p.channel})`;
     case "notify.failed":
       return "Notification could not be delivered";
+    case "guest.added":
+      return `Guest ${p.name} added`;
+    case "guest.expired":
+      return `Guest ${p.name} expired`;
+    case "guest.removed":
+      return `Guest ${p.name} removed`;
     case "import.csv":
       return `CSV import: ${p.devices_created ?? 0} created, ${p.devices_updated ?? 0} updated`;
     default:

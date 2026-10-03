@@ -6,8 +6,8 @@ import type { CSSProperties } from "react";
 import { devicesCsv } from "@/components/ip-plan-export";
 import { Button, Card, Notice, PageHeader } from "@/components/ui";
 import { useFeatures } from "@/lib/features";
-import { PENDING_COLOR } from "@/lib/group-icons";
-import { buildCells, lastOctet, rangeUsage, type Cell } from "@/lib/ipplan";
+import { GUEST_COLOR, PENDING_COLOR } from "@/lib/group-icons";
+import { buildCells, guestPool, inPool, lastOctet, poolUsage, rangeUsage, type Cell } from "@/lib/ipplan";
 import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Device, Group } from "@/lib/types";
@@ -28,6 +28,10 @@ export default function IpPlanPage() {
   const { settings } = useSettings();
   const { features } = useFeatures();
   const quarantine = hasCapability(features, "dhcp", "quarantine");
+  // The pool only matters while guests are on; guests are not in /devices, so they come from their own list.
+  const pool = features?.guests?.enabled ? guestPool(settings.network) : null;
+  const guestsRes = useResource<Device[]>(pool ? "/devices?access=guest" : null);
+  const guestUsage = pool ? poolUsage(pool, guestsRes.data ?? []) : null;
   const devicesRes = useResource<Device[]>("/devices");
   const groupsRes = useResource<Group[]>("/groups");
   const devices = devicesRes.data ?? [];
@@ -44,6 +48,7 @@ export default function IpPlanPage() {
     if (cell.device) return solid(cell.group?.color ?? GATEWAY_COLOR);
     if (cell.group) return tint(cell.group.color);
     if (quarantine && cell.octet >= qStart && cell.octet <= qEnd) return tint(PENDING_COLOR);
+    if (inPool(cell.octet, pool)) return tint(GUEST_COLOR);
     return UNASSIGNED;
   }
 
@@ -52,6 +57,7 @@ export default function IpPlanPage() {
     if (cell.device) return `.${cell.octet} — ${cell.device.name}`;
     if (cell.group) return `.${cell.octet} — free in ${cell.group.name}`;
     if (quarantine && cell.octet >= qStart && cell.octet <= qEnd) return `.${cell.octet} — quarantine pool`;
+    if (inPool(cell.octet, pool)) return `.${cell.octet} — guest pool`;
     return `.${cell.octet} — unassigned`;
   }
 
@@ -107,6 +113,12 @@ export default function IpPlanPage() {
                 quarantine pool
               </span>
             )}
+            {pool && (
+              <span className="flex items-center gap-1.5">
+                <span className="size-3.5 rounded" style={tint(GUEST_COLOR)} />
+                guest pool
+              </span>
+            )}
             <span className="flex items-center gap-1.5">
               <span className="size-3.5 rounded border border-line" />
               unassigned
@@ -148,6 +160,20 @@ export default function IpPlanPage() {
               </span>
               <span className="font-mono text-[13px] text-text2">
                 {devices.filter((d) => d.access === "pending").length}/{qEnd - qStart + 1}
+              </span>
+            </div>
+          )}
+          {pool && guestUsage && (
+            <div className="grid grid-cols-[14px_1fr_auto] items-center gap-3 py-[9px]">
+              <span className="size-3 rounded-[3px]" style={{ background: GUEST_COLOR }} />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">Guests</span>
+                <span className="font-mono text-xs text-faint">
+                  .{lastOctet(pool.start)}–.{lastOctet(pool.end)}
+                </span>
+              </span>
+              <span className="font-mono text-[13px] text-text2">
+                {guestUsage.used}/{guestUsage.total}
               </span>
             </div>
           )}

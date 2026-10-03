@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Bell, Clock3, Grid2x2, House, Layers, Monitor, NotepadText, Settings, Share2 } from "lucide-react";
+import { Bell, Clock3, Grid2x2, House, Layers, Monitor, NotepadText, Settings, Share2, UserRound } from "lucide-react";
 
 import type { Features } from "@/lib/types";
 
@@ -16,6 +16,7 @@ export const NAV: NavItem[] = [
   { href: "/map", label: "Network map", icon: Share2 },
   { href: "/devices", label: "Devices", icon: Monitor, count: "all" },
   { href: "/pending", label: "Pending", icon: Clock3, count: "pending" },
+  { href: "/guests", label: "Guests", icon: UserRound, count: "guests", requires: (f) => Boolean(f.guests?.enabled) },
   { href: "/ip-plan", label: "IP plan", icon: Grid2x2 },
   { href: "/groups", label: "Groups", icon: Layers },
   { href: "/notifications", label: "Notifications", icon: Bell, requires: (f) => Boolean(f.notify?.email || f.notify?.gotify) },

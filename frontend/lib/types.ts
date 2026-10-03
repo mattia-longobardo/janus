@@ -1,6 +1,6 @@
 import type { JsonSchema } from "@/providers/types";
 
-export type Access = "authorized" | "lan_only" | "pending" | "blocked";
+export type Access = "authorized" | "lan_only" | "pending" | "blocked" | "guest";
 
 export interface Device {
   id: string;
@@ -180,7 +180,7 @@ export interface ProvidersFeature {
 export interface Features {
   notify?: { email: boolean; gotify: boolean };
   providers?: ProvidersFeature;
-  guests?: { enabled: boolean };
+  guests?: { enabled: boolean; pool: boolean };
 }
 
 export type ProviderRole = "dhcp" | "dns";
@@ -237,3 +237,18 @@ export type AuthProvider = {
   source: "env" | "custom";
 };
 export type AuthSettings = { allowed_emails: string; allowed_emails_source: "env" | "custom"; providers: AuthProvider[] };
+
+// --- E ---
+export type Guest = Device & {
+  guest_since: string;
+  guest_expires_at: string | null;
+  effective_expires_at: string | null;
+  expiry_source: "device" | "global" | "inactive" | null;
+};
+export type ExpiryInput =
+  | { expires_in_hours: number }
+  | { expires_on: string }
+  | { expires_at: string }
+  | { clear_expiry: true }
+  | Record<string, never>;
+export type GuestRules = { auto_remove_hours: number | null; inactive_remove_hours: number | null };

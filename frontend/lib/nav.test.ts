@@ -12,12 +12,12 @@ describe("visibleNav", () => {
   });
 
   it("shows a gated item once its feature is on", () => {
-    expect(visibleNav({ guests: { enabled: true } }, [gated]).some((i) => i.href === "/gated")).toBe(true);
-    expect(visibleNav({ guests: { enabled: false } }, [gated]).some((i) => i.href === "/gated")).toBe(false);
+    expect(visibleNav({ guests: { enabled: true, pool: true } }, [gated]).some((i) => i.href === "/gated")).toBe(true);
+    expect(visibleNav({ guests: { enabled: false, pool: false } }, [gated]).some((i) => i.href === "/gated")).toBe(false);
   });
 
   it("places extra items before Notifications and keeps Settings last", () => {
-    const hrefs = visibleNav({ guests: { enabled: true }, notify: { email: true, gotify: false } }, [gated]).map((i) => i.href);
+    const hrefs = visibleNav({ guests: { enabled: true, pool: true }, notify: { email: true, gotify: false } }, [gated]).map((i) => i.href);
     expect(hrefs.indexOf("/gated")).toBeLessThan(hrefs.indexOf("/notifications"));
     expect(hrefs.at(-1)).toBe("/settings");
   });
@@ -25,5 +25,11 @@ describe("visibleNav", () => {
   it("hides Notifications when no channel is ready", () => {
     expect(visibleNav({ notify: { email: false, gotify: false } }).some((i) => i.href === "/notifications")).toBe(false);
     expect(visibleNav({ notify: { email: false, gotify: true } }).some((i) => i.href === "/notifications")).toBe(true);
+  });
+
+  it("shows Guests right after Pending only when guests are enabled", () => {
+    const on = visibleNav({ guests: { enabled: true, pool: false } }).map((i) => i.href);
+    expect(on.indexOf("/guests")).toBe(on.indexOf("/pending") + 1);
+    expect(visibleNav({ guests: { enabled: false, pool: false } }).some((i) => i.href === "/guests")).toBe(false);
   });
 });

@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { Plus } from "lucide-react";
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 
 import { CompactGroup } from "@/components/compact-group";
@@ -10,8 +11,8 @@ import { Button, Card, Checkbox, Field, IconTile, Notice, PageHeader, Segmented,
 import { api, errorText } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
 import { ACCESS_LABELS } from "@/lib/format";
-import { GROUP_ICONS, PENDING_COLOR, QuarantineIcon, iconFor } from "@/lib/group-icons";
-import { lastOctet, rangeUsage } from "@/lib/ipplan";
+import { GROUP_ICONS, GUEST_COLOR, GuestIcon, PENDING_COLOR, QuarantineIcon, iconFor } from "@/lib/group-icons";
+import { guestPool, lastOctet, rangeUsage } from "@/lib/ipplan";
 import { hasCapability, lanOnlyAllowed } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Access, Device, Group } from "@/lib/types";
@@ -49,6 +50,10 @@ export default function GroupsPage() {
   const devices = devicesRes.data ?? [];
   const current = typeof selected === "number" ? groups.find((g) => g.id === selected) : undefined;
   const pendingCount = devices.filter((d) => d.access === "pending").length;
+  const quarantineOn = hasCapability(features, "dhcp", "quarantine");
+  const guestsOn = Boolean(features?.guests?.enabled);
+  const guestsRes = useResource<Device[]>(guestsOn ? "/devices?access=guest" : null);
+  const pool = guestPool(settings.network);
 
   return (
     <>
@@ -88,7 +93,7 @@ export default function GroupsPage() {
               <span className="hidden text-[13px] text-muted sm:block">{ACCESS_LABELS[g.default_access]}</span>
             </button>
           ))}
-          {hasCapability(features, "dhcp", "quarantine") && (
+          {quarantineOn && (
             <div className={clsx(ROW, "py-3 text-text")} title="The DHCP pool for unknown devices, set in Settings → Network">
               <IconTile Icon={QuarantineIcon} color={PENDING_COLOR} size={34} />
               <span className="text-[15px] font-semibold">Quarantine</span>
@@ -96,6 +101,15 @@ export default function GroupsPage() {
               <span className="font-mono text-[13px] text-text2">{pendingCount}</span>
               <span className="hidden text-[13px] text-muted sm:block">Quarantine</span>
             </div>
+          )}
+          {guestsOn && (
+            <Link href="/guests" className={clsx(ROW, "py-3 text-text no-underline hover:bg-card2", quarantineOn && "border-t border-row")} title="Guests lease from the guest pool, set in Settings → Guests">
+              <IconTile Icon={GuestIcon} color={GUEST_COLOR} size={34} />
+              <span className="text-[15px] font-semibold">Guests</span>
+              <span className="font-mono text-[13px] text-muted">{pool ? span(pool.start, pool.end) : "no pool"}</span>
+              <span className="font-mono text-[13px] text-text2">{guestsRes.data?.length ?? 0}</span>
+              <span className="hidden text-[13px] text-muted sm:block">{ACCESS_LABELS.guest}</span>
+            </Link>
           )}
         </Card>
         {selected === null ? (

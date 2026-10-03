@@ -8,5 +8,8 @@ describe("eventTone", () => {
     expect(eventTone("device.new")).toBe("warn");
     expect(eventTone("device.approved")).toBe("good");
     expect(eventTone("import.csv")).toBe("neutral");
+    expect(eventTone("guest.added")).toBe("good");
+    expect(eventTone("guest.expired")).toBe("neutral");
+    expect(eventTone("guest.removed")).toBe("neutral");
   });
 });

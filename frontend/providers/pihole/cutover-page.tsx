@@ -26,6 +26,7 @@ const LABELS: Record<string, string> = {
   pihole_dhcp: "Pi-hole DHCP",
   write_access: "Write access",
   quarantine_rules: "Quarantine rules",
+  guest_rules: "Guest range",
   dhcp_range: "DHCP range",
   approved_devices_complete: "Approved devices",
   no_duplicates: "Duplicates",

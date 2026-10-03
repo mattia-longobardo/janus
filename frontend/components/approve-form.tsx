@@ -3,11 +3,14 @@
 import clsx from "clsx";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { GuestExpiry } from "@/components/guest-expiry";
 import { Button, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
+import { newGuestExpiry } from "@/lib/guests";
 import { lanOnlyAllowed } from "@/lib/provider-status";
-import type { Access, Approval, Device, Group } from "@/lib/types";
+import type { Access, Approval, Device, ExpiryInput, Group, Guest, GuestRules } from "@/lib/types";
+import { useResource } from "@/lib/use-resource";
 
 type Choice = Extract<Access, "authorized" | "lan_only" | "blocked">;
 
@@ -26,11 +29,13 @@ export function ApproveForm({
   groups,
   onApproved,
   onBlocked,
+  onGuest,
 }: {
   device: Device;
   groups: Group[];
   onApproved: (result: Approval) => void;
   onBlocked?: (result: Approval) => void;
+  onGuest?: (guest: Guest) => void;
 }) {
   const [name, setName] = useState(device.dhcp_hostname ?? device.name);
   const [groupId, setGroupId] = useState<number | "">("");
@@ -39,6 +44,9 @@ export function ApproveForm({
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const { features } = useFeatures();
+  const [asGuest, setAsGuest] = useState(false);
+  const [expiry, setExpiry] = useState<ExpiryInput>({});
+  const rules = useResource<GuestRules>(asGuest ? "/guests/settings" : null).data;
   const lanOnly = lanOnlyAllowed(features);
   const choices = CHOICES.filter((c) => c.value !== "lan_only" || lanOnly);
   const group = groups.find((g) => g.id === groupId);
@@ -67,6 +75,20 @@ export function ApproveForm({
     try {
       const result = await api.post<Approval>(`/devices/${device.id}/block`);
       (onBlocked ?? onApproved)(result);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function admitGuest() {
+    if (!name.trim()) return setError("Enter a name for the guest.");
+    setBusy(true);
+    setError(undefined);
+    try {
+      const guest = await api.post<Guest>(`/devices/${device.id}/guest`, { name: name.trim(), ...newGuestExpiry(expiry) });
+      onGuest?.(guest);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -161,6 +183,23 @@ export function ApproveForm({
           </label>
         ))}
       </fieldset>
+      {asGuest && (
+        <div className="flex flex-col gap-3 rounded-[10px] border border-accent bg-accent-soft p-[13px]">
+          <span className="flex flex-col gap-[3px]">
+            <span className="text-[15px] font-semibold">Guest</span>
+            <span className="text-[13px] text-muted">Internet access from the guest pool, no fixed IP. Removed when it expires.</span>
+          </span>
+          <GuestExpiry rules={rules} onChange={setExpiry} />
+          <div className="flex flex-wrap justify-end gap-3">
+            <Button variant="ghost" disabled={busy} onClick={() => setAsGuest(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={busy} onClick={() => void admitGuest()}>
+              Add as guest
+            </Button>
+          </div>
+        </div>
+      )}
       {error && (
         <p role="alert" className="rounded-lg border border-bad px-3 py-2 text-sm text-bad">
           {error}
@@ -170,6 +209,11 @@ export function ApproveForm({
         <Button variant="danger" disabled={busy} onClick={() => void block()}>
           Reject and block
         </Button>
+        {features?.guests?.enabled && !asGuest && (
+          <Button disabled={busy} onClick={() => setAsGuest(true)}>
+            Approve as guest
+          </Button>
+        )}
         <Button type="submit" variant="primary" disabled={busy || (choice !== "blocked" && groupId === "")}>
           {choice === "blocked" ? "Block device" : "Approve and assign IP"}
         </Button>

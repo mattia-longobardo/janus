@@ -11,7 +11,7 @@ import { useFeatures } from "@/lib/features";
 import { formatDateTime, ipSortKey, relativeTime } from "@/lib/format";
 import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
-import type { Approval, Device, EventItem, Group } from "@/lib/types";
+import type { Approval, Device, EventItem, Group, Guest } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
 
 const EVENT_DOT: Record<string, string> = {
@@ -43,6 +43,11 @@ export default function PendingPage() {
     void devicesRes.reload();
   }
 
+  function admitted(guest: Guest) {
+    setNotice({ tone: "success", text: `${guest.name} added as a guest` });
+    void devicesRes.reload();
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <Link href="/" className="self-start text-sm no-underline">
@@ -60,7 +65,7 @@ export default function PendingPage() {
         </>
       )}
       {pending.map((device, index) => (
-        <PendingDevice key={device.id} device={device} groups={groups} onDone={done} first={index === 0} quarantine={hasCapability(features, "dhcp", "quarantine") ? settings.network : null} />
+        <PendingDevice key={device.id} device={device} groups={groups} onDone={done} onGuest={admitted} first={index === 0} quarantine={hasCapability(features, "dhcp", "quarantine") ? settings.network : null} />
       ))}
     </div>
   );
@@ -70,12 +75,14 @@ function PendingDevice({
   device,
   groups,
   onDone,
+  onGuest,
   first,
   quarantine,
 }: {
   device: Device;
   groups: Group[];
   onDone: (result: Approval) => void;
+  onGuest: (guest: Guest) => void;
   first: boolean;
   quarantine: { quarantine_start: string; quarantine_end: string } | null; // null: the DHCP provider has no quarantine pool
 }) {
@@ -129,7 +136,7 @@ function PendingDevice({
             )}
           </InfoCard>
         </div>
-        <ApproveForm device={device} groups={groups} onApproved={onDone} onBlocked={onDone} />
+        <ApproveForm device={device} groups={groups} onApproved={onDone} onBlocked={onDone} onGuest={onGuest} />
       </div>
     </section>
   );

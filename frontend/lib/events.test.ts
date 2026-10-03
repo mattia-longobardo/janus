@@ -22,6 +22,9 @@ describe("describeEvent", () => {
       "TV_KITCHEN (00:00:5E:00:53:70) tried to take 192.168.1.155, assigned to TV_SALA (00:00:5E:00:53:71)"],
     [event("ip.conflict", { ip: "192.168.1.10" }), "IP conflict on 192.168.1.10"],
     [event("maintenance.start"), "Maintenance window started"],
+    [event("guest.added", { name: "Anna phone", mac: "00:00:5E:00:53:20", expires_at: null }), "Guest Anna phone added"],
+    [event("guest.expired", { name: "Anna phone", mac: "00:00:5E:00:53:20", last_ip: "192.168.1.201" }), "Guest Anna phone expired"],
+    [event("guest.removed", { name: "Anna phone", mac: "00:00:5E:00:53:20", last_ip: null }), "Guest Anna phone removed"],
     [event("something.else"), "something.else"],
   ])("%j", (input, expected) => {
     expect(describeEvent(input)).toBe(expected);

@@ -9,7 +9,7 @@ import { logout } from "@/lib/auth-actions";
 import { describeDays } from "@/lib/days";
 import { useFeatures } from "@/lib/features";
 import { relativeTime } from "@/lib/format";
-import { visibleNav } from "@/lib/nav";
+import { type NavItem, visibleNav } from "@/lib/nav";
 import { providerNav, providerPill } from "@/lib/provider-status";
 import { nextScanIn, useNow } from "@/lib/use-now";
 import { useSettings } from "@/lib/settings-context";
@@ -34,15 +34,18 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
   const { settings } = useSettings();
   const { features } = useFeatures();
   const { data: devices } = useResource<Device[]>("/devices", { refreshMs: 15_000 });
+  // /devices leaves guests out. The plain device list is lighter than /guests, which also works out every expiry.
+  const { data: guests } = useResource<Device[]>(features?.guests?.enabled ? "/devices?access=guest" : null, { refreshMs: 15_000 });
   const now = useNow(1000);
   const nextScan = nextScanIn(settings.status.last_sweep_at, settings.network.sweep_interval_s, now);
   const { data: windows } = useResource<MaintenanceWindow[]>("/maintenance-windows");
   const maint = windows?.find((w) => w.enabled);
   const { status } = settings;
   const pill = providerPill(features, settings.sync_mode);
-  const counts = {
-    all: devices?.filter((d) => d.access !== "pending").length ?? 0,
+  const counts: Record<NonNullable<NavItem["count"]>, number> = {
+    all: devices?.filter((d) => d.access !== "pending" && d.access !== "guest").length ?? 0,
     pending: devices?.filter((d) => d.access === "pending").length ?? 0,
+    guests: guests?.length ?? 0,
   };
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
@@ -65,7 +68,7 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
         <ul className="flex flex-col gap-[3px]">
           {visibleNav(features, providerNav(features)).map((item) => {
             const Icon = item.icon;
-            const count = item.count ? counts[item.count as keyof typeof counts] : undefined;
+            const count = item.count ? counts[item.count] : undefined;
             const active = isActive(item.href);
             return (
               <li key={item.href}>
