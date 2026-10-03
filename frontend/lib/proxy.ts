@@ -20,6 +20,8 @@ interface ForwardOptions {
 
 export async function forward(req: Request, path: string[], options: ForwardOptions): Promise<Response> {
   if (!options.signedIn) return Response.json({ detail: "not signed in" }, { status: 401 });
+  const first = decodeURIComponent(path[0] ?? "").split("/")[0].toLowerCase();
+  if (first === "internal") return Response.json({ detail: "not found" }, { status: 404 });
   if (isCrossSite(req, options.allowedOrigins)) {
     return Response.json({ detail: "cross-site request refused" }, { status: 403 });
   }

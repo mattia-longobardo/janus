@@ -70,4 +70,13 @@ describe("forward", () => {
     expect(response.status).toBe(413);
     expect(fetcher).not.toHaveBeenCalled();
   });
+
+  it("never forwards internal routes from the browser", async () => {
+    const fetcher = vi.fn();
+    for (const path of [["internal", "auth-config"], ["Internal", "x"], ["internal%2Fauth-config"]]) {
+      const response = await forward(request("GET"), path, { signedIn: true, backend: "http://b", allowedOrigins: ORIGINS, fetcher });
+      expect(response.status).toBe(404);
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });

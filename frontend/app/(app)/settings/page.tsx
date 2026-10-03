@@ -8,12 +8,16 @@ import { CutoverReadiness } from "@/components/cutover-readiness";
 import { type NetDraft, errorField, networkPatch, toDraft } from "@/components/settings-network";
 import { REPEATS, nextRun, zoneLabel } from "@/components/settings-schedule";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Button, Card, Checkbox, Field, Notice, PageHeader, inputClass } from "@/components/ui";
+import { Button, Checkbox, Field, Notice, PageHeader, inputClass } from "@/components/ui";
 import { ApiError, api, errorText } from "@/lib/api";
 import { DAY_NAMES, describeDays, hasDay, toggleDay } from "@/lib/days";
+import { useFeatures } from "@/lib/features";
 import { useSettings } from "@/lib/settings-context";
 import type { AppSettings, MaintenanceWindow, NetworkField } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
+
+import { EXTRA_SECTIONS } from "./sections";
+import { SectionCard } from "./sections/section-card";
 
 const DURATIONS = [5, 10, 15, 30, 45, 60, 90, 120];
 const NET_LAYOUT: { field: NetworkField; label: string; type?: "text" | "time" | "number"; suffix?: string; wide?: boolean }[] = [
@@ -28,18 +32,6 @@ const NET_LAYOUT: { field: NetworkField; label: string; type?: "text" | "time" |
   { field: "scan_window_end", label: "Port scans until", type: "time" },
 ];
 type General = Pick<AppSettings, "timezone" | "time_format">;
-
-function SectionCard({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <Card className="flex h-full flex-col gap-[18px] px-6 py-[22px]">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-display text-[19px] font-bold">{title}</h2>
-        {action}
-      </div>
-      {children}
-    </Card>
-  );
-}
 
 function NetInput({
   field,
@@ -108,6 +100,7 @@ function NetInput({
 
 export default function SettingsPage() {
   const { settings, reload } = useSettings();
+  const { features } = useFeatures();
   const windowsRes = useResource<MaintenanceWindow[]>("/maintenance-windows");
   const [general, setGeneral] = useState<General>({ timezone: settings.timezone, time_format: settings.time_format });
   const [drafts, setDrafts] = useState<Record<number, MaintenanceWindow>>({});
@@ -318,6 +311,13 @@ export default function SettingsPage() {
             </div>
           </SectionCard>
         </div>
+        {EXTRA_SECTIONS.filter((s) => !s.requires || (features && s.requires(features))).map(({ id, title, Component }) => (
+          <div key={id} className="min-w-0">
+            <SectionCard title={title}>
+              <Component />
+            </SectionCard>
+          </div>
+        ))}
       </div>
     </>
   );
