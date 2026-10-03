@@ -36,7 +36,9 @@ declaration is a promise your own `router`, `cli` and frontend pages keep.
    - `policies`, required with `RESERVATIONS` (see below);
    - `config_model`: a pydantic model with the settings of the router;
    - `secret_fields`: names of model fields holding secrets;
-   - `env_defaults`: callable returning the config fields taken from the environment (add the env fields to `app/config.py`);
+   - `env_defaults`: callable returning the config fields taken from the environment. The env variables are core
+     fields: add them to `app/config.py` (`Settings`) and pass them in `docker-compose.yml` to every container that
+     resolves providers (backend, worker, sentinel), or the role silently follows an empty default there;
    - `open`: `config -> context manager` yielding a `provider_class` instance (opened per use; share a login if the router
      refuses parallel sessions, as `pihole.open_pihole` does);
    - `provider_class`: the class the contract test inspects;
@@ -74,7 +76,8 @@ message, and the frontend hides the option (`lanOnlyAllowed`). Never degrade sil
   for one you cannot interpret as Janus' own. The diff reports it and never deletes it. Only entries that are Janus'
   (recognised by the canonical format you write) may be removed. Mark ownership in whatever the router lets you
   write: Pi-hole recognises its own `dhcp-host` line format, UniFi writes `note = "janus:<policy>"` on every client it
-  reserves and treats a client without that note as the admin's own.
+  reserves (overwriting any note the admin had set there) and treats a client without that note as the admin's own.
+  Prefer a field the admin does not use, and document it when there is none.
 - Return `canonical=False` for a Janus entry written in an outdated format; it is rewritten.
 - Normalise MACs with `app.net.mac.normalize_mac`; never accept duplicate IPs or MACs in what you write.
 - Raise `ProviderError`, never raw `httpx` errors. Use `ProviderError(msg, status=4xx)` for a one-off refusal by a

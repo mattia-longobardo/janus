@@ -119,11 +119,16 @@ Which provider holds the DHCP and DNS roles, and each provider's settings (`prov
 "Test connection" button. When DNS and DHCP are the same provider the config is shared and edited once. See
 [providers/adding-a-provider.md](providers/adding-a-provider.md) for what a provider declares.
 
+UniFi specifics: **Verify TLS is off by default** (consoles ship a self-signed certificate), so the connection to the
+console is encrypted but not authenticated; turn it on once the console has a certificate this host trusts. Janus marks
+every client it manages with the note `janus:<policy>`, which **overwrites any note an admin had set** on that client.
+
 ### Guests
 
 The guest pool (`network.guest_start`/`guest_end`) and the global rules (`guests.settings`): `auto_remove_hours` (from the time
 the device became a guest) and `inactive_remove_hours` (from `max(last_seen, guest_since)`), each off or 1 to 8760 hours. A
-guest's own expiry replaces both rules.
+guest's own expiry replaces both rules. Guests get no static IP, so they are not shown on the map or in the IP plan;
+they are listed on the Guests page.
 
 ### Other settings
 

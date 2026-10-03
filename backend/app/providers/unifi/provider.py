@@ -13,7 +13,7 @@ from collections.abc import Callable
 from ipaddress import AddressValueError, IPv4Address, IPv4Network
 from typing import Any, Protocol, Self
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.net.mac import normalize_mac
 from app.providers.base import CurrentEntry, Policy, Reservation
@@ -33,7 +33,8 @@ class UnifiConfig(BaseModel):
     password: str = ""
     site: str = "default"
     unifi_os: bool = True
-    verify_tls: bool = False
+    verify_tls: bool = Field(False, description="Off by default: UniFi consoles ship a self-signed certificate. "
+                             "Turn it on once the console has a certificate this host trusts.")
     network_id: str = ""   # empty: the network whose ip_subnet contains Janus' gateway
 
 

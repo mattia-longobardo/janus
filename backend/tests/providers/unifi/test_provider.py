@@ -369,3 +369,10 @@ def test_noted_janus_entries_still_converge(db):
     assert fake.users[mac]["fixed_ip"] == "192.168.1.10" and fake.users["00:00:5e:00:53:11"]["blocked"] is False
     assert fake.users["00:00:5e:00:53:11"]["note"] == GUEST_NOTE
     assert plan_sync(db, UnifiProvider(fake, CFG), "unifi", SPEC.policies).empty
+
+
+def test_verify_tls_is_off_by_default_and_explained_in_the_form():
+    from app.providers.unifi.provider import UnifiConfig
+
+    assert UnifiConfig(url="https://unifi.test", username="janus").verify_tls is False
+    assert "self-signed" in UnifiConfig.model_json_schema()["properties"]["verify_tls"]["description"]
