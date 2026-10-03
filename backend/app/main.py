@@ -16,10 +16,12 @@ from app.api import (
     maintenance,
     map,
     notifications,
+    providers,
     services,
     settings,
     sync,
 )
+from app.providers import registry
 from app.security import require_internal
 
 
@@ -36,8 +38,11 @@ def create_app() -> FastAPI:
     protected = [Depends(require_internal)]
     for router in (groups.router, devices.router, approval.router, sync.router,
                    notifications.router, maintenance.router, events.router, intel.router, settings.router, authconfig.router,
-                   map.router, services.router, cutover.router, features.router, internal.router):
+                   map.router, services.router, cutover.router, features.router, providers.router, internal.router):
         app.include_router(router, dependencies=protected)
+    for spec in registry.all_specs():
+        if spec.router is not None:
+            app.include_router(spec.router, prefix=f"/api/providers/{spec.kind}", dependencies=protected)
     return app
 
 

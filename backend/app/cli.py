@@ -5,14 +5,13 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from app.config import settings
 from app.db import SessionLocal
 from app.importer import import_csv
 from app.netconfig import load_netconfig
 from app.pihole.sync import apply_sync, plan_sync
+from app.providers.pihole.api import current_config
 from app.providers.pihole.client import PiholeClient, PiholeError
 from app.providers.pihole.cutover import PiholeAdmin, cutover, preflight, rollback, take_backup
-from app.providers.pihole.provider import PiholeConfig
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -44,9 +43,9 @@ def main(argv: list[str] | None = None) -> int:
                 db.commit()
             return 0
         try:
-            with PiholeClient(load_netconfig(db).pihole_url, settings.pihole_password) as client:
-                diff = apply_sync(db, client, settings.reservation_lease) if args.apply else plan_sync(
-                    db, client, settings.reservation_lease)
+            cfg, _ = current_config(db)
+            with PiholeClient(cfg.url, cfg.password) as client:
+                diff = apply_sync(db, client, cfg.lease) if args.apply else plan_sync(db, client, cfg.lease)
         except PiholeError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
@@ -57,24 +56,23 @@ def main(argv: list[str] | None = None) -> int:
 
 def _cutover_command(args: argparse.Namespace) -> int:
     with SessionLocal() as db:
-        url = load_netconfig(db).pihole_url
-        password = settings.pihole_password
+        cfg, dhcp_kind = current_config(db)
         if args.command in ("cutover", "rollback"):
             password = os.environ.get(args.pihole_password_env, "")
             if not password:
                 print(f"error: environment variable {args.pihole_password_env} is empty", file=sys.stderr)
                 return 2
+            cfg = cfg.model_copy(update={"password": password})
         try:
-            cfg = PiholeConfig(url=url, password=password, lease=settings.reservation_lease)
-            with PiholeAdmin(url, password) as client:
+            with PiholeAdmin(cfg.url, cfg.password) as client:
                 if args.command == "preflight":
-                    report = preflight(db, client, cfg, dhcp_kind="pihole")
+                    report = preflight(db, client, cfg, dhcp_kind=dhcp_kind)
                     print(json.dumps(report.as_dict(), indent=2))
                     return 0 if report.ready else 1
                 if args.command == "backup":
                     print(f"backup written to {take_backup(db, client)}")
                     return 0
-                result = (cutover(db, client, cfg, dhcp_kind="pihole") if args.command == "cutover"
+                result = (cutover(db, client, cfg, dhcp_kind=dhcp_kind) if args.command == "cutover"
                           else rollback(db, client))
         except (PiholeError, RuntimeError) as exc:
             db.rollback()

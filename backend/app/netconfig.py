@@ -110,7 +110,8 @@ def validate(cfg: NetConfig, group_ranges: list[tuple[str, IpRange]]) -> NetConf
         if rng.overlaps(pool):
             raise NetConfigError(f"quarantine pool overlaps group {name} ({rng})")
     url = urlparse(str(cfg.pihole_url).strip())
-    if url.scheme not in ("http", "https") or not url.netloc:
+    # Empty is allowed: JANUS_PIHOLE_URL has no default any more and the URL now lives in providers.config (C5 drops it).
+    if str(cfg.pihole_url).strip() and (url.scheme not in ("http", "https") or not url.netloc):
         raise NetConfigError("pihole_url: use an http(s) URL such as http://192.168.1.220:1000")
     if not INTERFACE.match(str(cfg.sentinel_interface)):
         raise NetConfigError("sentinel_interface: letters, digits and . _ : - only (max 32)")

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://janus:janus@localhost:5432/janus"
     internal_token: str = ""
     secret_key: str = ""
-    pihole_url: str = "http://192.168.1.220:1000"
+    pihole_url: str = ""
     pihole_password: str = ""
     subnet: str = "192.168.1.0/24"
     gateway: str = "192.168.1.1"
@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     oidc_secret: str = Field("", validation_alias=AliasChoices("JANUS_OIDC_SECRET", "AUTH_AUTHENTIK_SECRET"))
     oidc_issuer: str = Field("", validation_alias=AliasChoices("JANUS_OIDC_ISSUER", "AUTH_AUTHENTIK_ISSUER"))
     oidc_name: str = Field("Authentik", validation_alias=AliasChoices("JANUS_OIDC_NAME"))
+    # --- C --- network providers per role: "" = Pi-hole when JANUS_PIHOLE_PASSWORD is set, "none" = off.
+    dhcp_provider: str = ""
+    dns_provider: str = ""
 
 
 settings = Settings()

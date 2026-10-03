@@ -1,7 +1,6 @@
 import uuid
 from ipaddress import IPv4Address
 from typing import Any
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -14,6 +13,7 @@ from app.events import record_event
 from app.models import Access, Device, Group
 from app.net.ipplan import AssignmentError, IpRange, NetworkPlan, check_assignment, check_group_range, next_free
 from app.netconfig import load_netconfig
+from app.providers.runtime import infrastructure_ips
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 GROUP_ACCESS = {Access.authorized, Access.lan_only}
@@ -183,12 +183,7 @@ def next_free_ip(group_id: int, device_id: uuid.UUID | None = None, db: Session 
 
 
 def _pinned_ips(db: Session) -> set[str]:
-    config = load_netconfig(db)
-    pinned = {config.gateway}
-    host = urlparse(config.pihole_url).hostname
-    if host:
-        pinned.add(host)
-    return pinned
+    return {load_netconfig(db).gateway} | infrastructure_ips(db)
 
 
 @router.post("/{group_id}/compact")
