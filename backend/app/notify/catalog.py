@@ -25,5 +25,8 @@ CATALOG: dict[str, EventSpec] = {
     "infra.up": EventSpec("Scanner, DHCP or DNS reachable again", priority=4, maintenance_muted=True, email=True),
     "security.new_port": EventSpec("New open port on a device", priority=6),
     "security.risky_service": EventSpec("Risky service exposed", priority=8, email=True),
+    "guest.added": EventSpec("Guest added", priority=3, email=False, gotify=False),
+    "guest.expired": EventSpec("Guest expired", priority=2, email=False, gotify=False),
+    "guest.removed": EventSpec("Guest removed", priority=2, email=False, gotify=False),
     "notify.test": EventSpec("Test notification", always=True, email=True),
 }

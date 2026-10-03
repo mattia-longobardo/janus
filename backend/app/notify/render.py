@@ -85,4 +85,11 @@ def render(event: Event, device_name: str | None, *, base_url: str, tz: ZoneInfo
     if kind == "security.risky_service":
         return Message(f"Risky service on {name}",
                        f"{p.get('port')}/{p.get('proto')} {p.get('service') or 'unknown'}: {p.get('reason')}", priority, url)
+    if kind == "guest.added":
+        expiry = f"expires {_local(p['expires_at'], tz)}" if p.get("expires_at") else "no expiry"
+        return Message("Guest added", f"Guest {name} added ({expiry})", priority, f"{base_url}/guests")
+    if kind == "guest.expired":
+        return Message("Guest expired", f"Guest {name} expired and was removed", priority, f"{base_url}/guests")
+    if kind == "guest.removed":
+        return Message("Guest removed", f"Guest {name} removed", priority, f"{base_url}/guests")
     return Message("Janus test notification", "If you can read this, the channel works.", priority, base_url)

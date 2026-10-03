@@ -77,3 +77,14 @@ def test_combined_risky_message():
     assert message.title == "Risky services on CAM"
     assert message.body == ("21/tcp ftp: FTP sends passwords in clear text\n"
                             "23/tcp telnet: Telnet sends passwords in clear text")
+
+
+def test_guest_messages():
+    added = _render("guest.added", {"name": "Anna phone", "expires_at": "2026-10-05T10:00:00+00:00"}, name="Anna phone")
+    assert (added.title, added.body, added.priority) == ("Guest added", "Guest Anna phone added (expires 05/10 12:00)", 3)
+    forever = _render("guest.added", {"name": "Bo"}, name="Bo")
+    assert forever.body == "Guest Bo added (no expiry)"
+    expired = _render("guest.expired", {"name": "Bo", "mac": "00:00:5E:00:53:40", "last_ip": "192.168.1.9"})
+    assert (expired.title, expired.body, expired.priority) == ("Guest expired", "Guest Bo expired and was removed", 2)
+    removed = _render("guest.removed", {"name": "Bo"})
+    assert (removed.title, removed.body) == ("Guest removed", "Guest Bo removed")
