@@ -12,6 +12,8 @@ export const NETWORK_FIELDS: NetworkField[] = [
   "scan_window_end",
   "quarantine_start",
   "quarantine_end",
+  "guest_start",
+  "guest_end",
 ];
 
 export function toDraft(settings: AppSettings): NetDraft {
@@ -21,6 +23,8 @@ export function toDraft(settings: AppSettings): NetDraft {
     gateway: n.gateway,
     quarantine_start: n.quarantine_start,
     quarantine_end: n.quarantine_end,
+    guest_start: n.guest_start,
+    guest_end: n.guest_end,
     sentinel_interface: n.sentinel_interface,
     sweep_interval_s: String(n.sweep_interval_s),
     scan_window_start: settings.scan_window.start,

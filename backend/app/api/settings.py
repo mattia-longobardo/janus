@@ -28,6 +28,8 @@ class NetworkPatch(BaseModel):
     sweep_interval_s: int | None = None
     scan_window_start: str | None = None
     scan_window_end: str | None = None
+    guest_start: str | None = None
+    guest_end: str | None = None
 
 
 class SettingsPatch(BaseModel):
@@ -55,6 +57,8 @@ def _view(db: Session) -> dict[str, Any]:
             "quarantine_end": cfg.quarantine_end,
             "sentinel_interface": cfg.sentinel_interface,
             "sweep_interval_s": cfg.sweep_interval_s,
+            "guest_start": cfg.guest_start,
+            "guest_end": cfg.guest_end,
         },
         "scan_window": {"start": cfg.scan_window_start, "end": cfg.scan_window_end},
         "source": sources(db),

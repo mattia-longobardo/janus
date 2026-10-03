@@ -111,6 +111,8 @@ export type NetworkField =
   | "gateway"
   | "quarantine_start"
   | "quarantine_end"
+  | "guest_start"
+  | "guest_end"
   | "sentinel_interface"
   | "sweep_interval_s"
   | "scan_window_start"
@@ -125,6 +127,8 @@ export interface AppSettings {
     gateway: string;
     quarantine_start: string;
     quarantine_end: string;
+    guest_start: string;
+    guest_end: string;
     sentinel_interface: string;
     sweep_interval_s: number;
   };

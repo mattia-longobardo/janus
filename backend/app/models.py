@@ -29,6 +29,7 @@ class Access(enum.StrEnum):
     authorized = "authorized"
     lan_only = "lan_only"
     pending = "pending"
+    guest = "guest"
     blocked = "blocked"
 
 
@@ -76,6 +77,8 @@ class Device(Base):
     scan_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     map_x: Mapped[float | None] = mapped_column(Float)
     map_y: Mapped[float | None] = mapped_column(Float)
+    guest_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    guest_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     group: Mapped[Group | None] = relationship(back_populates="devices")

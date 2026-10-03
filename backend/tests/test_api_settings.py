@@ -3,6 +3,7 @@ def test_get_settings_defaults(client):
     assert (body["timezone"], body["time_format"], body["sync_mode"]) == ("Europe/Rome", "24h", "dry-run")
     assert body["network"]["subnet"] == "192.168.1.0/24"
     assert body["network"]["quarantine_start"] == "192.168.1.240"
+    assert body["network"]["guest_start"] == "" and body["network"]["guest_end"] == ""
     assert body["scan_window"] == {"start": "08:00", "end": "22:00"}
 
 

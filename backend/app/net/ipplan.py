@@ -42,6 +42,8 @@ class _PlanSettings(Protocol):
     gateway: str
     quarantine_start: str
     quarantine_end: str
+    guest_start: str
+    guest_end: str
 
 
 @dataclass(frozen=True)
@@ -49,10 +51,12 @@ class NetworkPlan:
     subnet: IPv4Network
     gateway: IPv4Address
     quarantine: IpRange
+    guest: IpRange | None = None
 
     @classmethod
     def from_settings(cls, s: _PlanSettings) -> "NetworkPlan":
-        return cls(IPv4Network(s.subnet), IPv4Address(s.gateway), IpRange.parse(s.quarantine_start, s.quarantine_end))
+        guest = IpRange.parse(s.guest_start, s.guest_end) if s.guest_start and s.guest_end else None
+        return cls(IPv4Network(s.subnet), IPv4Address(s.gateway), IpRange.parse(s.quarantine_start, s.quarantine_end), guest)
 
 
 def check_assignment(plan: NetworkPlan, ip: str, group_range: IpRange, taken: set[IPv4Address]) -> IPv4Address:
@@ -68,6 +72,8 @@ def check_assignment(plan: NetworkPlan, ip: str, group_range: IpRange, taken: se
         raise AssignmentError(f"{addr} is the gateway")
     if addr in plan.quarantine:
         raise AssignmentError(f"{addr} is inside the quarantine pool {plan.quarantine}")
+    if plan.guest is not None and addr in plan.guest:
+        raise AssignmentError(f"{addr} is inside the guest pool {plan.guest}")
     if addr not in group_range:
         raise AssignmentError(f"{addr} is outside the group range {group_range}")
     if addr in taken:
@@ -81,6 +87,8 @@ def check_group_range(plan: NetworkPlan, rng: IpRange, others: list[IpRange]) ->
             raise AssignmentError(f"{addr} is outside {plan.subnet}")
     if rng.overlaps(plan.quarantine):
         raise AssignmentError(f"range {rng} overlaps the quarantine pool {plan.quarantine}")
+    if plan.guest is not None and rng.overlaps(plan.guest):
+        raise AssignmentError(f"range {rng} overlaps the guest pool {plan.guest}")
     for other in others:
         if rng.overlaps(other):
             raise AssignmentError(f"range {rng} overlaps {other}")

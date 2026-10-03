@@ -14,6 +14,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     gateway: "192.168.1.1",
     quarantine_start: "192.168.1.240",
     quarantine_end: "192.168.1.254",
+    guest_start: "",
+    guest_end: "",
     sentinel_interface: "",
     sweep_interval_s: 60,
   },

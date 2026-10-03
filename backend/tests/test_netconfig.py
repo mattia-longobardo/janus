@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.intel.scanning import on_lan, pick_next
 from app.models import Access, Device, Event, Group, Setting
-from app.netconfig import NETWORK_KEY, env_defaults, load_netconfig, restart_needed
+from app.netconfig import NETWORK_KEY, NetConfigError, env_defaults, load_netconfig, restart_needed, update_netconfig
 
 NOW = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
@@ -141,3 +141,34 @@ def test_pihole_url_is_no_longer_a_network_setting(client, db):
     db.add(Setting(key=NETWORK_KEY, value={"pihole_url": "http://10.0.0.2", "sweep_interval_s": 120}))
     db.flush()
     assert load_netconfig(db).sweep_interval_s == 120   # a leftover pre-0008 key is ignored
+
+
+def test_guest_pool_must_be_complete_and_not_overlap(db):
+    with pytest.raises(NetConfigError, match="guest_end"):
+        update_netconfig(db, {"guest_start": "192.168.1.200"})
+    with pytest.raises(NetConfigError, match="guest_start"):
+        update_netconfig(db, {"guest_end": "192.168.1.200"})
+    with pytest.raises(NetConfigError, match="quarantine"):
+        update_netconfig(db, {"guest_start": "192.168.1.230", "guest_end": "192.168.1.245"})
+    with pytest.raises(NetConfigError, match="gateway"):
+        update_netconfig(db, {"guest_start": "192.168.1.1", "guest_end": "192.168.1.9"})
+    cfg, _ = update_netconfig(db, {"guest_start": "192.168.1.200", "guest_end": "192.168.1.229"})
+    assert cfg.guest_pool().size() == 30
+
+
+def test_guest_pool_overlapping_a_group_is_refused(db):
+    from app.models import Access, Group
+    db.add(Group(name="Kids", color="#fff", icon="device", range_start="192.168.1.195", range_end="192.168.1.205",
+                 default_access=Access.authorized))
+    db.flush()
+    with pytest.raises(NetConfigError, match="Kids"):
+        update_netconfig(db, {"guest_start": "192.168.1.200", "guest_end": "192.168.1.229"})
+
+
+def test_guest_pool_defaults_to_none_and_clearing_drops_the_override(db):
+    assert load_netconfig(db).guest_pool() is None
+    update_netconfig(db, {"guest_start": "192.168.1.200", "guest_end": "192.168.1.229"})
+    assert load_netconfig(db).guest_pool() is not None
+    update_netconfig(db, {"guest_start": "", "guest_end": ""})
+    assert load_netconfig(db).guest_pool() is None
+    assert db.get(Setting, NETWORK_KEY).value == {}

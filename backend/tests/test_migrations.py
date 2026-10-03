@@ -21,10 +21,11 @@ def _migrated(schema: str) -> Iterator[Connection]:
         conn.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
         conn.execute(text(f"CREATE SCHEMA {schema}"))
     try:
-        with eng.begin() as conn:
+        with eng.connect() as conn:
             cfg = Config("alembic.ini")
             cfg.attributes["connection"] = conn
             command.upgrade(cfg, "head")
+            conn.commit()
         with eng.connect() as conn:
             yield conn
     finally:
@@ -57,6 +58,7 @@ def _alembic(conn: Connection, action, revision: str) -> None:
     cfg = Config("alembic.ini")
     cfg.attributes["connection"] = conn
     action(cfg, revision)
+    conn.commit()
 
 
 @contextmanager
@@ -66,7 +68,7 @@ def _at_revision(schema: str, revision: str) -> Iterator[Engine]:
         conn.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
         conn.execute(text(f"CREATE SCHEMA {schema}"))
     try:
-        with eng.begin() as conn:
+        with eng.connect() as conn:
             _alembic(conn, command.upgrade, revision)
         yield eng
     finally:
@@ -89,7 +91,7 @@ def test_migration_0008_preserves_written_macs():
                            " ('pihole_dns.down_since', '\"2026-10-02T00:00:00+00:00\"'::jsonb),"
                            " ('pihole_dns.last_ok', '\"2026-10-03T00:00:00+00:00\"'::jsonb)"))
         before = _settings(engine)
-        with engine.begin() as c:
+        with engine.connect() as c:
             _alembic(c, command.upgrade, "0008")
         rows = _settings(engine)
         assert rows["provider.pihole.written_macs"] == ["00:00:5E:00:53:10"]
@@ -99,7 +101,7 @@ def test_migration_0008_preserves_written_macs():
         assert rows["network.config"] == {"subnet": "10.0.0.0/24"}
         assert rows["providers.config"] == {"dhcp": {"kind": "pihole", "config": {"url": "http://10.0.0.2"}},
                                             "dns": {"same_as": "dhcp"}}
-        with engine.begin() as c:
+        with engine.connect() as c:
             _alembic(c, command.downgrade, "0007")
         assert _settings(engine) == before
 
@@ -108,10 +110,29 @@ def test_migration_0008_without_custom_pihole_url_writes_no_provider_config():
     with _at_revision("mig0008b", "0007") as engine:
         with engine.begin() as c:
             c.execute(text("INSERT INTO settings(key, value) VALUES ('network.config', '{\"subnet\": \"10.0.0.0/24\"}'::jsonb)"))
-        with engine.begin() as c:
+        with engine.connect() as c:
             _alembic(c, command.upgrade, "0008")
         rows = _settings(engine)
         assert rows == {"network.config": {"subnet": "10.0.0.0/24"}}
-        with engine.begin() as c:
+        with engine.connect() as c:
             _alembic(c, command.downgrade, "0007")
         assert _settings(engine) == {"network.config": {"subnet": "10.0.0.0/24"}}
+
+
+def test_migration_0009_adds_guest_access_and_columns_and_downgrade_makes_pending():
+    with _at_revision("mig0009", "0008") as engine:
+        with engine.connect() as c:
+            _alembic(c, command.upgrade, "0009")
+        with engine.begin() as c:
+            c.execute(text("INSERT INTO devices(id, mac, name, hostname, access, guest_since, guest_expires_at) VALUES "
+                           "(gen_random_uuid(), '00:00:5E:00:53:20', 'g', 'g', 'guest', now(), now())"))
+            cols = {r[0] for r in c.execute(text("SELECT column_name FROM information_schema.columns "
+                                                 "WHERE table_name = 'devices' AND table_schema = current_schema()"))}
+        assert {"guest_since", "guest_expires_at"} <= cols
+        with engine.connect() as c:
+            _alembic(c, command.downgrade, "0008")
+        with engine.begin() as c:
+            assert c.execute(text("SELECT access FROM devices")).scalar() == "pending"
+            cols = {r[0] for r in c.execute(text("SELECT column_name FROM information_schema.columns "
+                                                 "WHERE table_name = 'devices' AND table_schema = current_schema()"))}
+        assert not {"guest_since", "guest_expires_at"} & cols

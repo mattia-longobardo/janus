@@ -56,5 +56,9 @@ class Settings(BaseSettings):
     dhcp_provider: str = ""
     dns_provider: str = ""
 
+    # --- E --- guest DHCP pool, "" = not defined.
+    guest_start: str = ""
+    guest_end: str = ""
+
 
 settings = Settings()

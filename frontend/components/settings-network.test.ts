@@ -14,6 +14,13 @@ describe("network settings draft", () => {
     expect(Object.keys(toDraft(settings))).not.toContain("pihole_url");
   });
 
+  it("carries the guest pool and patches it, clearing with an empty string", () => {
+    const withPool = { ...settings, network: { ...settings.network, guest_start: "192.168.1.200", guest_end: "192.168.1.229" } };
+    expect(toDraft(withPool)).toMatchObject({ guest_start: "192.168.1.200", guest_end: "192.168.1.229" });
+    expect(networkPatch({ ...toDraft(withPool), guest_start: "", guest_end: "" }, withPool)).toEqual({ guest_start: "", guest_end: "" });
+    expect(errorField("guest_end: set it together with guest_start, or clear both")).toBe("guest_end");
+  });
+
   it("maps backend messages to the field they are about", () => {
     expect(errorField("subnet: 'x' is not an IPv4 network")).toBe("subnet");
     expect(errorField("sweep_interval_s: must be between 10 and 3600 seconds")).toBe("sweep_interval_s");

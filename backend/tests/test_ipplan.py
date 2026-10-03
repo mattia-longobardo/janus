@@ -69,3 +69,19 @@ def test_infer_group_range_uses_decade_blocks_clamped_to_subnet():
     assert infer_group_range(PLAN, [A("192.168.1.12"), A("192.168.1.15")]) == IpRange.parse("192.168.1.10", "192.168.1.19")
     assert infer_group_range(PLAN, [A("192.168.1.2")]) == IpRange.parse("192.168.1.1", "192.168.1.9")
     assert infer_group_range(PLAN, [A("192.168.1.100"), A("192.168.1.113")]) == IpRange.parse("192.168.1.100", "192.168.1.119")
+
+
+def test_static_assignment_inside_guest_pool_is_refused():
+    plan = NetworkPlan(PLAN.subnet, PLAN.gateway, PLAN.quarantine, guest=IpRange.parse("192.168.1.200", "192.168.1.229"))
+    with pytest.raises(AssignmentError, match="guest"):
+        check_assignment(plan, "192.168.1.210", IpRange.parse("192.168.1.2", "192.168.1.239"), set())
+
+
+def test_group_range_overlapping_guest_pool_is_refused():
+    plan = NetworkPlan(PLAN.subnet, PLAN.gateway, PLAN.quarantine, guest=IpRange.parse("192.168.1.200", "192.168.1.229"))
+    with pytest.raises(AssignmentError, match="guest"):
+        check_group_range(plan, IpRange.parse("192.168.1.190", "192.168.1.200"), [])
+
+
+def test_plan_guest_defaults_to_none():
+    assert PLAN.guest is None
