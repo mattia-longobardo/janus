@@ -30,6 +30,7 @@ const NET_LAYOUT: { field: NetworkField; label: string; type?: "text" | "time" |
   { field: "scan_window_start", label: "Port scans from", type: "time" },
   { field: "scan_window_end", label: "Port scans until", type: "time" },
 ];
+const QUARANTINE_FIELDS: NetworkField[] = ["quarantine_start", "quarantine_end"];
 type General = Pick<AppSettings, "timezone" | "time_format">;
 
 function NetInput({
@@ -171,6 +172,9 @@ export default function SettingsPage() {
   const applying = settings.sync_mode === "apply";
   const q = settings.network;
   const dhcp = features?.providers?.dhcp;
+  // The quarantine pool only exists with a DHCP provider that has one; hidden fields keep their stored values.
+  const quarantinePool = hasCapability(features, "dhcp", "quarantine");
+  const netLayout = NET_LAYOUT.filter((f) => quarantinePool || !QUARANTINE_FIELDS.includes(f.field));
 
   return (
     <>
@@ -218,7 +222,7 @@ export default function SettingsPage() {
         <div className="min-w-0">
           <SectionCard title="Network">
             <div className="grid gap-3.5 sm:grid-cols-2">
-              {NET_LAYOUT.map(({ field, label, type, suffix }) => (
+              {netLayout.map(({ field, label, type, suffix }) => (
                 <div key={field}>
                   <NetInput
                     field={field}
@@ -262,7 +266,7 @@ export default function SettingsPage() {
         <div className="min-w-0">
           <SectionCard title="Access control">
             <div className="flex flex-col">
-              {hasCapability(features, "dhcp", "quarantine") && (
+              {quarantinePool && (
                 <StatusRow
                   title="Quarantine unknown devices"
                   detail={

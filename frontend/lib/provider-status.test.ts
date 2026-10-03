@@ -40,6 +40,8 @@ describe("feature gates", () => {
   it("summarises who serves DHCP and DNS", () => {
     expect(providerSummary({ providers: { dhcp: ref(), dns: ref({ shared: true }) } })).toBe("DNS/DHCP Pi-hole");
     expect(providerSummary({ providers: { dhcp: ref({ kind: "unifi", label: "UniFi" }), dns: ref() } })).toBe("DHCP UniFi · DNS Pi-hole");
+    // Two separate Pi-hole connections are two providers, not one shared one.
+    expect(providerSummary({ providers: { dhcp: ref(), dns: ref({ shared: false }) } })).toBe("DHCP Pi-hole · DNS Pi-hole");
     expect(providerSummary({ providers: { dhcp: null, dns: null } })).toBe("no network provider");
   });
 });

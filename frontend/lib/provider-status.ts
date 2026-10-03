@@ -50,7 +50,7 @@ export function providerSummary(features: Features | null): string {
   const providers = features?.providers;
   if (!providers) return "";
   const { dhcp, dns } = providers;
-  if (dhcp && dns && (dns.shared || dns.kind === dhcp.kind)) return `DNS/DHCP ${dhcp.label}`;
+  if (dhcp && dns?.shared) return `DNS/DHCP ${dhcp.label}`;
   const parts = [dhcp && `DHCP ${dhcp.label}`, dns && `DNS ${dns.label}`].filter(Boolean);
   return parts.length ? parts.join(" · ") : "no network provider";
 }

@@ -29,20 +29,23 @@ export function ProvidersSection() {
   const { data, error, reload } = useResource<ProvidersList>("/providers");
   const { reload: reloadFeatures } = useFeatures();
   const { reload: reloadSettings } = useSettings();
+  const [dhcpSaves, setDhcpSaves] = useState(0);
 
   if (!data) {
     return <div id="providers">{error ? <Notice tone="error">{error}</Notice> : <p className="text-sm text-muted">Loading…</p>}</div>;
   }
 
-  async function saved() {
+  async function saved(role: ProviderRole) {
     // A new DHCP provider puts Janus back in dry-run, and the menu and pages follow the providers.
     await Promise.all([reload(), reloadFeatures(), reloadSettings()]);
+    // Saving DHCP can change the DNS role too (the old provider may keep DNS on its own): drop any unsaved DNS draft.
+    if (role === "dhcp") setDhcpSaves((n) => n + 1);
   }
 
   return (
     <div id="providers" className="flex flex-col gap-6">
       {ROWS.map(({ role, title }) => (
-        <RoleRow key={role} role={role} title={title} list={data} onSaved={saved} />
+        <RoleRow key={role === "dns" ? `dns-${dhcpSaves}` : role} role={role} title={title} list={data} onSaved={() => saved(role)} />
       ))}
     </div>
   );

@@ -28,6 +28,7 @@ import { HEALTH_COLOR, healthTitle } from "@/components/health";
 import { useResolvedTheme } from "@/components/theme-toggle";
 import { Button, Notice, PageHeader } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import { deviceIp } from "@/lib/format";
 import { GatewayIcon, ModemIcon, NEUTRAL_COLOR, PENDING_COLOR, deviceLook } from "@/lib/group-icons";
 import {
@@ -42,6 +43,7 @@ import {
   topology,
   wires,
 } from "@/lib/map-layout";
+import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Device, Group, MapData } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
@@ -172,6 +174,8 @@ function MapCanvas() {
   const router = useRouter();
   const theme = useResolvedTheme();
   const { settings } = useSettings();
+  const { features } = useFeatures();
+  const quarantine = hasCapability(features, "dhcp", "quarantine");
   const gatewayIp = settings.network.gateway;
   const devicesRes = useResource<Device[]>("/devices", { refreshMs: 15_000 });
   const groupsRes = useResource<Group[]>("/groups");
@@ -216,6 +220,8 @@ function MapCanvas() {
     (box: Box): BoxData => {
       const count = devices.filter((d) => roleOf(d, groups, gatewayIp, topo) === "member" && groupKey(d) === box.key).length;
       if (box.key === "pending") {
+        // Without a quarantine pool pending devices keep whatever address they got: no range to show.
+        if (!quarantine) return { label: "Pending", color: PENDING_COLOR, range: "", count, pending: true };
         const range = `.${settings.network.quarantine_start.split(".")[3]}–.${settings.network.quarantine_end.split(".")[3]}`;
         return { label: "Quarantine", color: PENDING_COLOR, range, count, pending: true };
       }
@@ -223,7 +229,7 @@ function MapCanvas() {
       if (!group) return { label: "Unassigned", color: NEUTRAL_COLOR, range: "", count, pending: false };
       return { label: group.name, color: group.color, range: lastOctets(group), count, pending: false };
     },
-    [devices, groups, gatewayIp, settings.network.quarantine_start, settings.network.quarantine_end],
+    [devices, groups, gatewayIp, quarantine, settings.network.quarantine_start, settings.network.quarantine_end],
   );
 
   const deviceData = useMemo(() => {

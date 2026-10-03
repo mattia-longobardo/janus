@@ -54,3 +54,15 @@ it("tests the saved connection and shows the answer", async () => {
   expect(post).toHaveBeenCalledWith("/providers/dhcp/test");
   expect(await screen.findByText("Pi-hole refused the password")).toBeTruthy();
 });
+
+it("drops an unsaved DNS draft once DHCP is saved", async () => {
+  vi.spyOn(api, "get").mockResolvedValue(LIST);
+  vi.spyOn(api, "put").mockResolvedValue(LIST.roles.dhcp);
+  render(<ProvidersSection />);
+  const dns = (await screen.findByLabelText("DNS provider")) as HTMLSelectElement;
+  await userEvent.selectOptions(dns, "pihole");
+  await userEvent.selectOptions(screen.getByLabelText("DHCP & access provider"), "unifi");
+  await userEvent.click(screen.getByRole("button", { name: "Save DHCP & access" }));
+  expect(await screen.findByText("Saved")).toBeTruthy();
+  expect((screen.getByLabelText("DNS provider") as HTMLSelectElement).value).toBe("none");
+});

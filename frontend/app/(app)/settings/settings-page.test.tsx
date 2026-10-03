@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import SettingsPage from "@/app/(app)/settings/page";
+import * as featuresModule from "@/lib/features";
+import type { ProviderRef } from "@/lib/types";
 
 vi.mock("@/lib/use-resource", () => ({
   useResource: () => ({ data: [], error: null, loading: false, reload: async () => {} }),
@@ -21,5 +23,20 @@ describe("SettingsPage network card", () => {
     render(<SettingsPage />);
     expect(screen.queryByRole("button", { name: /^reset$/i })).toBeNull();
     expect(screen.getByRole("button", { name: /^(Save|Saved)$/ })).toBeTruthy();
+  });
+
+  it("shows the quarantine pool fields only when the DHCP provider has a quarantine", () => {
+    const dhcp = (capabilities: string[]): ProviderRef => ({ kind: "x", label: "X", capabilities, policies: ["full"], down_since: null });
+    const spy = vi.spyOn(featuresModule, "useFeatures");
+    spy.mockReturnValue({ features: { providers: { dhcp: dhcp(["reservations"]), dns: null } }, reload: async () => {} });
+    const { unmount } = render(<SettingsPage />);
+    expect(screen.queryByLabelText("Quarantine from")).toBeNull();
+    expect(screen.queryByLabelText("Quarantine to")).toBeNull();
+    expect(screen.queryByText("Quarantine unknown devices")).toBeNull();
+    unmount();
+    spy.mockReturnValue({ features: { providers: { dhcp: dhcp(["reservations", "quarantine"]), dns: null } }, reload: async () => {} });
+    render(<SettingsPage />);
+    expect(screen.getByLabelText("Quarantine from")).toBeTruthy();
+    expect(screen.getByLabelText("Quarantine to")).toBeTruthy();
   });
 });

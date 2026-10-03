@@ -8,9 +8,11 @@ import { CompactGroup } from "@/components/compact-group";
 import { CustomColor } from "@/components/custom-color";
 import { Button, Card, Checkbox, Field, IconTile, Notice, PageHeader, Segmented, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import { ACCESS_LABELS } from "@/lib/format";
 import { GROUP_ICONS, PENDING_COLOR, QuarantineIcon, iconFor } from "@/lib/group-icons";
 import { lastOctet, rangeUsage } from "@/lib/ipplan";
+import { hasCapability, lanOnlyAllowed } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Access, Device, Group } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
@@ -38,6 +40,7 @@ function span(start: string, end: string): string {
 
 export default function GroupsPage() {
   const { settings } = useSettings();
+  const { features } = useFeatures();
   const groupsRes = useResource<Group[]>("/groups");
   const devicesRes = useResource<Device[]>("/devices");
   const [selected, setSelected] = useState<number | "new" | null>(null);
@@ -85,13 +88,15 @@ export default function GroupsPage() {
               <span className="hidden text-[13px] text-muted sm:block">{ACCESS_LABELS[g.default_access]}</span>
             </button>
           ))}
-          <div className={clsx(ROW, "py-3 text-text")} title="The DHCP pool for unknown devices, set in the server configuration">
-            <IconTile Icon={QuarantineIcon} color={PENDING_COLOR} size={34} />
-            <span className="text-[15px] font-semibold">Quarantine</span>
-            <span className="font-mono text-[13px] text-muted">{span(settings.network.quarantine_start, settings.network.quarantine_end)}</span>
-            <span className="font-mono text-[13px] text-text2">{pendingCount}</span>
-            <span className="hidden text-[13px] text-muted sm:block">Quarantine</span>
-          </div>
+          {hasCapability(features, "dhcp", "quarantine") && (
+            <div className={clsx(ROW, "py-3 text-text")} title="The DHCP pool for unknown devices, set in Settings → Network">
+              <IconTile Icon={QuarantineIcon} color={PENDING_COLOR} size={34} />
+              <span className="text-[15px] font-semibold">Quarantine</span>
+              <span className="font-mono text-[13px] text-muted">{span(settings.network.quarantine_start, settings.network.quarantine_end)}</span>
+              <span className="font-mono text-[13px] text-text2">{pendingCount}</span>
+              <span className="hidden text-[13px] text-muted sm:block">Quarantine</span>
+            </div>
+          )}
         </Card>
         {selected === null ? (
           <Card className="p-6 text-sm text-muted">Select a group to edit it, or create a new one.</Card>
@@ -125,6 +130,9 @@ function GroupEditor({
   onError: (text: string) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(group ? { ...group } : EMPTY);
+  const { features } = useFeatures();
+  // Keep LAN only on a group that already has it, so the editor never shows a value it cannot display.
+  const lanOnly = lanOnlyAllowed(features) || group?.default_access === "lan_only";
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const usage = group ? rangeUsage(group, devices) : null;
@@ -239,13 +247,15 @@ function GroupEditor({
               onChange={(value) => set("default_access", value)}
               options={[
                 { value: "authorized", label: ACCESS_LABELS.authorized },
-                { value: "lan_only", label: ACCESS_LABELS.lan_only },
+                ...(lanOnly ? [{ value: "lan_only" as const, label: ACCESS_LABELS.lan_only }] : []),
               ]}
             />
           </div>
-          <span className="text-xs text-faint">
-            LAN only: the device gets no gateway, so it talks to home devices but never reaches the internet.
-          </span>
+          {lanOnly && (
+            <span className="text-xs text-faint">
+              LAN only: the device gets no gateway, so it talks to home devices but never reaches the internet.
+            </span>
+          )}
         </div>
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2.5 text-sm text-text2">
