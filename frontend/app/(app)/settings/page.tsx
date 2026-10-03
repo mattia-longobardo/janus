@@ -38,9 +38,6 @@ function NetInput({
   label,
   draft,
   onChange,
-  source,
-  reset,
-  onReset,
   error,
   type = "text",
   suffix,
@@ -49,9 +46,6 @@ function NetInput({
   label: string;
   draft: NetDraft;
   onChange: (field: NetworkField, value: string) => void;
-  source: "env" | "custom";
-  reset: boolean;
-  onReset: (field: NetworkField) => void;
   error?: string;
   type?: "text" | "time" | "number";
   suffix?: string;
@@ -59,20 +53,9 @@ function NetInput({
   const id = `net-${field}`;
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <label htmlFor={id} className="text-[13px] font-medium text-text2">
-          {label}
-        </label>
-        {reset ? (
-          <span className="text-[11px] text-accent-text">default on save</span>
-        ) : source === "custom" ? (
-          <button type="button" onClick={() => onReset(field)} className="text-[11px] text-ok hover:underline">
-            Reset
-          </button>
-        ) : (
-          <span className="text-[11px] text-faint">default</span>
-        )}
-      </div>
+      <label htmlFor={id} className="text-[13px] font-medium text-text2">
+        {label}
+      </label>
       <div className="relative">
         <input
           id={id}
@@ -81,9 +64,8 @@ function NetInput({
           max={type === "number" ? 3600 : undefined}
           aria-invalid={Boolean(error)}
           aria-describedby={error ? `${id}-error` : undefined}
-          className={clsx(`${inputClass} font-mono`, suffix && "pr-8", error && "border-bad", reset && "text-faint")}
+          className={clsx(`${inputClass} font-mono`, suffix && "pr-8", error && "border-bad")}
           value={draft[field]}
-          disabled={reset}
           spellCheck={false}
           onChange={(e) => onChange(field, e.target.value)}
         />
@@ -106,7 +88,6 @@ export default function SettingsPage() {
   const [drafts, setDrafts] = useState<Record<number, MaintenanceWindow>>({});
   const [busy, setBusy] = useState(false);
   const [net, setNet] = useState<NetDraft>(() => toDraft(settings));
-  const [resets, setResets] = useState<Set<NetworkField>>(new Set());
   const [netError, setNetError] = useState<{ field: NetworkField; text: string }>();
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string }>();
   const zones = useMemo(() => {
@@ -117,10 +98,7 @@ export default function SettingsPage() {
   }, [settings.timezone]);
 
   useEffect(() => setGeneral({ timezone: settings.timezone, time_format: settings.time_format }), [settings.timezone, settings.time_format]);
-  useEffect(() => {
-    setNet(toDraft(settings));
-    setResets(new Set());
-  }, [settings]);
+  useEffect(() => setNet(toDraft(settings)), [settings]);
 
   const windows = (windowsRes.data ?? []).map((w) => drafts[w.id] ?? w);
   const dirtyWindows = windows.filter((w) => {
@@ -128,7 +106,7 @@ export default function SettingsPage() {
     return original && JSON.stringify(original) !== JSON.stringify(w);
   });
   const generalDirty = general.timezone !== settings.timezone || general.time_format !== settings.time_format;
-  const patch = networkPatch(net, settings, resets);
+  const patch = networkPatch(net, settings);
   const networkDirty = Object.keys(patch).length > 0;
   const dirty = generalDirty || networkDirty || dirtyWindows.length > 0;
 
@@ -191,11 +169,6 @@ export default function SettingsPage() {
     if (netError?.field === field) setNetError(undefined);
   }
 
-  function resetNet(field: NetworkField) {
-    setResets((r) => new Set(r).add(field));
-    if (netError?.field === field) setNetError(undefined);
-  }
-
   const applying = settings.sync_mode === "apply";
   const q = settings.network;
 
@@ -254,9 +227,6 @@ export default function SettingsPage() {
                     suffix={suffix}
                     draft={net}
                     onChange={changeNet}
-                    source={settings.source?.[field] ?? "env"}
-                    reset={resets.has(field)}
-                    onReset={resetNet}
                     error={netError?.field === field ? netError.text : undefined}
                   />
                 </div>

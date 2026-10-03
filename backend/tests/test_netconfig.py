@@ -126,3 +126,12 @@ def test_restart_needed_only_for_fields_the_sentinel_binds():
     assert restart_needed(base, replace(base, sentinel_interface="eth1", sweep_interval_s=30)) == [
         "sentinel_interface", "sweep_interval_s"]
     assert restart_needed(base, replace(base, quarantine_end="192.168.1.250")) == ["quarantine_end"]
+
+
+def test_saving_the_env_value_drops_the_override(db):
+    from app.netconfig import env_defaults, sources, update_netconfig
+
+    update_netconfig(db, {"sweep_interval_s": 120})
+    assert sources(db)["sweep_interval_s"] == "custom"
+    update_netconfig(db, {"sweep_interval_s": env_defaults().sweep_interval_s})
+    assert sources(db)["sweep_interval_s"] == "env"

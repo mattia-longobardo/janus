@@ -30,14 +30,10 @@ export function toDraft(settings: AppSettings): NetDraft {
   };
 }
 
-export function networkPatch(draft: NetDraft, settings: AppSettings, resets: Set<NetworkField>): NetPatch {
+export function networkPatch(draft: NetDraft, settings: AppSettings): NetPatch {
   const current = toDraft(settings);
   const patch: NetPatch = {};
   for (const field of NETWORK_FIELDS) {
-    if (resets.has(field)) {
-      patch[field] = null;
-      continue;
-    }
     const value = draft[field].trim();
     if (value === current[field]) continue;
     patch[field] = field === "sweep_interval_s" ? Number(value) : value;
