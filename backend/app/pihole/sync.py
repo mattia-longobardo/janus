@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.events import record_event
 from app.net.mac import normalize_mac
-from app.pihole.client import PiholeError
 from app.pihole.reservations import HostDiff, desired_hosts, diff_hosts, managed_macs, remember_written, written_macs
+from app.providers.pihole.client import PiholeError
 
 
 class HostStore(Protocol):

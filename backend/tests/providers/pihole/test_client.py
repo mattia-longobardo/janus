@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from app.pihole.client import PiholeClient, PiholeError
+from app.providers.pihole.client import PiholeClient, PiholeError
 
 BASE = "http://pihole.test"
 LOGIN_OK = {"session": {"valid": True, "sid": "sid-1", "validity": 1800}}
@@ -100,7 +100,7 @@ def test_list_queries_filters_by_client_and_time(respx_mock):
 def test_shared_session_logs_in_once_for_concurrent_clients(respx_mock):
     from concurrent.futures import ThreadPoolExecutor
 
-    from app.pihole.client import SharedSession
+    from app.providers.pihole.client import SharedSession
 
     login = respx_mock.post("/api/auth").respond(json=LOGIN_OK)
     logout = respx_mock.route(method="DELETE", path="/api/auth").respond(204)
@@ -120,7 +120,7 @@ def test_shared_session_logs_in_once_for_concurrent_clients(respx_mock):
 
 @respx.mock(base_url=BASE)
 def test_shared_session_renews_once_when_expired(respx_mock):
-    from app.pihole.client import SharedSession
+    from app.providers.pihole.client import SharedSession
 
     shared = SharedSession()
     shared.sid = "old"

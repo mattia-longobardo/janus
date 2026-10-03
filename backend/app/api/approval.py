@@ -16,8 +16,8 @@ from app.db import get_db
 from app.models import Access, Device, Group
 from app.net.ipplan import AssignmentError
 from app.netconfig import load_netconfig
-from app.pihole.client import PiholeClient, PiholeError, shared_session
 from app.pihole.sync import apply_sync
+from app.providers.pihole.client import PiholeClient, PiholeError, shared_session
 from app.syncmode import load_sync_mode
 
 router = APIRouter(prefix="/api/devices", tags=["approval"])

@@ -10,11 +10,11 @@ from typing import Any
 from sqlalchemy import MetaData, select
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.enforcement.sync import apply_sync, plan_sync
 from app.models import Access, Device
 from app.netconfig import NetConfig, load_netconfig
-from app.pihole.client import PiholeClient, PiholeError
-from app.pihole.sync import apply_sync, plan_sync
+from app.providers.pihole.client import PiholeClient, PiholeError
+from app.providers.pihole.provider import KIND, POLICIES, PiholeConfig, PiholeProvider
 from app.syncmode import load_sync_mode, set_sync_mode
 
 QUARANTINE_LINES = ("dhcp-option=tag:!known,option:router", "dhcp-option=tag:lanonly,option:router")
@@ -93,11 +93,22 @@ def _range_check(net: NetConfig) -> Check:
                  if ok else "quarantine pool is not a valid range inside the subnet")
 
 
-def preflight(db: Session, client: PiholeAdmin, *, admin: PiholeAdmin | None = None,
-              now: datetime | None = None) -> Report:
+def _dhcp_role_check(dhcp_kind: str | None) -> Check:
+    if dhcp_kind == KIND:
+        return Check("pihole_is_dhcp_provider", True, "Pi-hole holds the DHCP role")
+    if dhcp_kind is None:
+        return Check("pihole_is_dhcp_provider", False, "no DHCP provider is configured: assign the DHCP role to "
+                     "Pi-hole first")
+    return Check("pihole_is_dhcp_provider", False, f"the DHCP role belongs to {dhcp_kind}: turning on Pi-hole DHCP "
+                 "would put a second DHCP server on the LAN")
+
+
+def preflight(db: Session, client: PiholeAdmin, cfg: PiholeConfig, *, dhcp_kind: str | None,
+              admin: PiholeAdmin | None = None, now: datetime | None = None) -> Report:
+    """`dhcp_kind` is the provider that holds the DHCP role: the cutover only makes sense when it is this Pi-hole."""
     now = now or datetime.now(UTC)
     net = load_netconfig(db)
-    report = Report()
+    report = Report(checks=[_dhcp_role_check(dhcp_kind)])
     try:
         dhcp = client.get_config("dhcp")["dhcp"]
         lines = client.get_config("misc/dnsmasq_lines")["misc"]["dnsmasq_lines"]
@@ -106,7 +117,7 @@ def preflight(db: Session, client: PiholeAdmin, *, admin: PiholeAdmin | None = N
         report.checks.append(Check("pihole_reachable", False, f"Pi-hole API not usable: {exc}"))
         report.checks.extend(_device_checks(db, net.gateway))
         return report
-    report.checks.append(Check("pihole_reachable", True, f"Pi-hole API answers at {net.pihole_url}"))
+    report.checks.append(Check("pihole_reachable", True, f"Pi-hole API answers at {cfg.url}"))
     dhcp_state = "Pi-hole DHCP is already on" if dhcp.get("active") else "Pi-hole DHCP is off (expected before cutover)"
     report.checks.append(Check("pihole_dhcp", True, dhcp_state, blocking=False))
     if admin is not None:
@@ -127,7 +138,7 @@ def preflight(db: Session, client: PiholeAdmin, *, admin: PiholeAdmin | None = N
     report.checks.append(_range_check(net))
     report.checks.extend(_device_checks(db, net.gateway))
     try:
-        diff = plan_sync(db, client, settings.reservation_lease)
+        diff = plan_sync(db, PiholeProvider(client, cfg), KIND, POLICIES)
         report.plan = {"to_add": len(diff.to_add), "to_remove": len(diff.to_remove), "unmanaged": len(diff.unmanaged)}
         report.checks.append(Check("sync_plan", True, f"{len(diff.to_add)} reservations to add, {len(diff.to_remove)} to remove, "
                                    f"{len(diff.unmanaged)} foreign lines left alone", blocking=False))
@@ -165,29 +176,31 @@ def take_backup(db: Session, client: PiholeAdmin, *, now: datetime | None = None
     return target
 
 
-def dhcp_config(net: NetConfig) -> dict[str, Any]:
+def dhcp_config(net: NetConfig, lease: str) -> dict[str, Any]:
     return {
         "active": True,
         "start": net.quarantine_start,
         "end": net.quarantine_end,
         "router": net.gateway,
         "netmask": str(IPv4Network(net.subnet, strict=False).netmask),
-        "leaseTime": settings.reservation_lease,
+        "leaseTime": lease,
         "ipv6": False,
     }
 
 
-def cutover(db: Session, admin: PiholeAdmin) -> dict[str, Any]:
-    report = preflight(db, admin, admin=admin)
+def cutover(db: Session, admin: PiholeAdmin, cfg: PiholeConfig, *, dhcp_kind: str | None) -> dict[str, Any]:
+    report = preflight(db, admin, cfg, dhcp_kind=dhcp_kind, admin=admin)
     if not report.ready:
         raise RuntimeError("preflight is not green: " + "; ".join(c.detail for c in report.checks if c.blocking and not c.ok))
     net = load_netconfig(db)
     admin.patch_config({"webserver": {"api": {"app_sudo": True}}})
-    diff = apply_sync(db, admin, settings.reservation_lease)
-    admin.patch_config({"dhcp": dhcp_config(net)})
+    store = PiholeProvider(admin, cfg)
+    diff = apply_sync(db, store, KIND, POLICIES)
+    admin.patch_config({"dhcp": dhcp_config(net, cfg.lease)})
     set_sync_mode(db, "apply", "cli cutover")
     db.commit()
-    return {"dhcp": dhcp_config(net), "sync_mode": load_sync_mode(db), "reservations": diff.as_dict()}
+    return {"dhcp": dhcp_config(net, cfg.lease), "sync_mode": load_sync_mode(db),
+            "reservations": diff.as_dict(store.describe)}
 
 
 def rollback(db: Session, admin: PiholeAdmin) -> dict[str, Any]:

@@ -2,9 +2,9 @@ import pytest
 from sqlalchemy import select
 
 from app.models import Access, Device, Event, Group
-from app.pihole.client import PiholeError
 from app.pihole.reservations import HostLine, desired_hosts, diff_hosts
 from app.pihole.sync import apply_sync, plan_sync
+from app.providers.pihole.client import PiholeError
 from tests.fakes import FakePihole
 
 
@@ -21,17 +21,6 @@ def _device(db, group, name, mac, ip, access=Access.authorized):
     db.add(d)
     db.flush()
     return d
-
-
-def test_render_and_parse_round_trip():
-    plain = HostLine("00:00:5E:00:53:10", "192.168.1.10", "laptop-a")
-    lan = HostLine("00:00:5E:00:53:20", "192.168.1.120", "plug", lan_only=True)
-    assert plain.render() == "00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"
-    assert lan.render() == "00:00:5e:00:53:20,set:lanonly,192.168.1.120,plug,24h"
-    assert HostLine.parse(plain.render()) == plain
-    assert HostLine.parse(lan.render()) == lan
-    assert HostLine.parse("00-00-5E-00-53-10, 192.168.1.10, laptop-a, 24h") == plain
-    assert HostLine.parse("not,a,reservation") is None
 
 
 def test_desired_hosts_only_include_approved_devices_with_mac_and_ip(db):

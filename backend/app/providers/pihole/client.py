@@ -4,15 +4,11 @@ from urllib.parse import quote
 
 import httpx
 
+from app.providers.base import ProviderError
 
-class PiholeError(RuntimeError):
-    def __init__(self, message: str, *, status: int | None = None) -> None:
-        super().__init__(message)
-        self.status = status
 
-    @property
-    def rejected(self) -> bool:
-        return self.status is not None and 400 <= self.status < 500
+class PiholeError(ProviderError):
+    pass
 
 
 class SharedSession:

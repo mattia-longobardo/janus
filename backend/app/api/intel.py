@@ -12,12 +12,14 @@ from app.api.devices import get_device_or_404
 from app.api.sync import get_pihole
 from app.db import get_db
 from app.general import current_tz
-from app.intel.dns import BLOCKED, analyze
+from app.intel.dns import analyze
 from app.intel.rules import summarize
 from app.intel.scanning import on_lan
 from app.models import DeviceFact, Service
 from app.netconfig import load_netconfig
-from app.pihole.client import PiholeClient, PiholeError
+from app.providers.base import DnsQuery
+from app.providers.pihole.client import PiholeClient, PiholeError
+from app.providers.pihole.dns import normalize
 
 router = APIRouter(prefix="/api/devices", tags=["intelligence"])
 
@@ -56,7 +58,8 @@ def request_scan(device_id: uuid.UUID, db: Session = Depends(get_db)) -> dict[st
     return {"queued": True}
 
 
-def _device_queries(db: Session, pihole: PiholeClient, device_id: uuid.UUID, hours: int) -> tuple[list, int, int]:
+def _device_queries(db: Session, pihole: PiholeClient, device_id: uuid.UUID,
+                    hours: int) -> tuple[list[DnsQuery], int, int]:
     device = get_device_or_404(db, device_id)
     if not device.last_ip:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "the device has no known IP address yet")
@@ -65,20 +68,20 @@ def _device_queries(db: Session, pihole: PiholeClient, device_id: uuid.UUID, hou
         queries, total = pihole.list_queries(device.last_ip, until - hours * 3600, until, disk=hours > 24)
     except PiholeError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
-    return queries, total, until
+    return [normalize(q) for q in queries], total, until
 
 
 @router.get("/{device_id}/dns")
 def device_dns(device_id: uuid.UUID, hours: int = Query(default=24, ge=1, le=168), db: Session = Depends(get_db),
                pihole: PiholeClient = Depends(get_pihole)) -> dict[str, Any]:
     queries, total, _ = _device_queries(db, pihole, device_id, hours)
-    counts = Counter(q["domain"] for q in queries)
-    blocked_domains = {q["domain"] for q in queries if q.get("status") in BLOCKED}
+    counts = Counter(q.domain for q in queries)
+    blocked_domains = {q.domain for q in queries if q.blocked}
     return {
         "total": total,
         "sampled": len(queries),
         "truncated": total > len(queries),
-        "blocked": sum(1 for q in queries if q.get("status") in BLOCKED),
+        "blocked": sum(1 for q in queries if q.blocked),
         "domains": [{"domain": d, "count": n, "blocked": d in blocked_domains} for d, n in counts.most_common(20)],
     }
 

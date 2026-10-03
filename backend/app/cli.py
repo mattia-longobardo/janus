@@ -6,12 +6,13 @@ from dataclasses import asdict
 from pathlib import Path
 
 from app.config import settings
-from app.cutover import PiholeAdmin, cutover, preflight, rollback, take_backup
 from app.db import SessionLocal
 from app.importer import import_csv
 from app.netconfig import load_netconfig
-from app.pihole.client import PiholeClient, PiholeError
 from app.pihole.sync import apply_sync, plan_sync
+from app.providers.pihole.client import PiholeClient, PiholeError
+from app.providers.pihole.cutover import PiholeAdmin, cutover, preflight, rollback, take_backup
+from app.providers.pihole.provider import PiholeConfig
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,15 +65,17 @@ def _cutover_command(args: argparse.Namespace) -> int:
                 print(f"error: environment variable {args.pihole_password_env} is empty", file=sys.stderr)
                 return 2
         try:
+            cfg = PiholeConfig(url=url, password=password, lease=settings.reservation_lease)
             with PiholeAdmin(url, password) as client:
                 if args.command == "preflight":
-                    report = preflight(db, client)
+                    report = preflight(db, client, cfg, dhcp_kind="pihole")
                     print(json.dumps(report.as_dict(), indent=2))
                     return 0 if report.ready else 1
                 if args.command == "backup":
                     print(f"backup written to {take_backup(db, client)}")
                     return 0
-                result = cutover(db, client) if args.command == "cutover" else rollback(db, client)
+                result = (cutover(db, client, cfg, dhcp_kind="pihole") if args.command == "cutover"
+                          else rollback(db, client))
         except (PiholeError, RuntimeError) as exc:
             db.rollback()
             print(f"error: {exc}", file=sys.stderr)

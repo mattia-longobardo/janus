@@ -4,13 +4,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import respx
 
-from app.cutover import QUARANTINE_LINES, PiholeAdmin, cutover, preflight, rollback, take_backup
 from app.models import Access, Device, Event, Group
-from app.pihole.client import PiholeError
+from app.providers.pihole.client import PiholeError
+from app.providers.pihole.cutover import QUARANTINE_LINES, PiholeAdmin, cutover, preflight, rollback, take_backup
+from app.providers.pihole.provider import PiholeConfig
 from app.syncmode import load_sync_mode
 
 NOW = datetime(2026, 10, 1, 20, 0, tzinfo=UTC)
 BASE = "http://pihole.test"
+CFG = PiholeConfig(url="http://192.168.1.220:1000", password="pw", lease="24h")
 
 
 class FakeAdmin:
@@ -67,7 +69,7 @@ def _checks(report):
 
 
 def test_preflight_blocks_without_rules_and_backup(db, seeded):
-    report = preflight(db, FakeAdmin(lines=()), now=NOW)
+    report = preflight(db, FakeAdmin(lines=()), CFG, dhcp_kind="pihole", now=NOW)
     checks = _checks(report)
     assert (checks["quarantine_rules"], checks["backup"], report.ready) == (False, False, False)
     assert checks["write_access"] is None
@@ -80,7 +82,7 @@ def test_backup_then_green_preflight(db, seeded):
     assert (target / "pihole-teleporter.zip").read_bytes().startswith(b"PK")
     dump = json.loads((target / "janus.json").read_text())
     assert [d["name"] for d in dump["devices"]] == ["LAPTOP_A"] and "sightings" not in dump
-    report = preflight(db, admin, admin=admin)
+    report = preflight(db, admin, CFG, dhcp_kind="pihole", admin=admin)
     assert report.ready, report.as_dict()
 
 
@@ -90,7 +92,7 @@ def test_preflight_flags_incomplete_and_duplicate_devices(db, seeded):
         Device(mac="00:00:5e:00:53:10", name="TWIN", hostname="twin", static_ip="192.168.1.12", access=Access.authorized),
     ])
     db.flush()
-    checks = _checks(preflight(db, FakeAdmin(), now=NOW))
+    checks = _checks(preflight(db, FakeAdmin(), CFG, dhcp_kind="pihole", now=NOW))
     assert (checks["approved_devices_complete"], checks["no_duplicates"]) == (False, False)
 
 
@@ -98,18 +100,18 @@ def test_gateway_needs_no_reservation(db, seeded):
     db.add(Device(mac="00:00:5E:00:53:01", name="Gateway", hostname="gateway", last_ip="192.168.1.1",
                   access=Access.authorized))
     db.flush()
-    assert _checks(preflight(db, FakeAdmin(), now=NOW))["approved_devices_complete"] is True
+    assert _checks(preflight(db, FakeAdmin(), CFG, dhcp_kind="pihole", now=NOW))["approved_devices_complete"] is True
 
 
 def test_unreachable_pihole_is_reported(db, seeded):
-    checks = _checks(preflight(db, FakeAdmin(fail=True), now=NOW))
+    checks = _checks(preflight(db, FakeAdmin(fail=True), CFG, dhcp_kind="pihole", now=NOW))
     assert checks["pihole_reachable"] is False
 
 
 def test_cutover_writes_reservations_before_dhcp_and_rollback_undoes(db, seeded):
     admin = FakeAdmin()
     take_backup(db, admin)
-    result = cutover(db, admin)
+    result = cutover(db, admin, CFG, dhcp_kind="pihole")
     assert admin.hosts == ["00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"]
     assert admin.patches[0] == {"webserver": {"api": {"app_sudo": True}}}
     assert admin.patches[1]["dhcp"] | {} == {"active": True, "start": "192.168.1.240", "end": "192.168.1.254",
@@ -126,8 +128,31 @@ def test_cutover_writes_reservations_before_dhcp_and_rollback_undoes(db, seeded)
 def test_cutover_refuses_when_preflight_is_red(db, seeded):
     admin = FakeAdmin(lines=())
     with pytest.raises(RuntimeError, match="preflight is not green"):
-        cutover(db, admin)
+        cutover(db, admin, CFG, dhcp_kind="pihole")
     assert admin.patches == [] and load_sync_mode(db) == "dry-run"
+
+
+def test_cutover_refused_when_pihole_is_dns_only(db, seeded):
+    admin = FakeAdmin()
+    take_backup(db, admin)
+    report = preflight(db, admin, CFG, dhcp_kind="unifi", admin=admin)
+    assert _checks(report)["pihole_is_dhcp_provider"] is False and not report.ready
+    assert _checks(preflight(db, admin, CFG, dhcp_kind="pihole", admin=admin))["pihole_is_dhcp_provider"] is True
+    for other in ("unifi", None):
+        with pytest.raises(RuntimeError, match="preflight is not green"):
+            cutover(db, admin, CFG, dhcp_kind=other)
+    assert admin.patches == [] and admin.hosts == [] and load_sync_mode(db) == "dry-run"
+
+
+def test_preflight_and_cutover_use_the_configured_lease(db, seeded):
+    admin = FakeAdmin()
+    take_backup(db, admin)
+    cfg = PiholeConfig(url=BASE, password="pw", lease="12h")
+    details = {c.name: c.detail for c in preflight(db, admin, cfg, dhcp_kind="pihole").checks}
+    assert f"answers at {BASE}" in details["pihole_reachable"]
+    result = cutover(db, admin, cfg, dhcp_kind="pihole")
+    assert admin.hosts == ["00:00:5e:00:53:10,192.168.1.10,laptop-a,12h"]
+    assert result["dhcp"]["leaseTime"] == "12h"
 
 
 @respx.mock(base_url=BASE)

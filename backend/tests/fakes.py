@@ -1,6 +1,6 @@
 from typing import Self
 
-from app.pihole.client import PiholeError
+from app.providers.pihole.client import PiholeError
 
 
 class FakePihole:

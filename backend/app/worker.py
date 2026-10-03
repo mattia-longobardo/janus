@@ -20,10 +20,10 @@ from app.netconfig import load_netconfig, load_with
 from app.notify.config import build_senders
 from app.notify.debounce import Debouncer, RedisDebouncer
 from app.notify.dispatcher import Sender, dispatch_pending
-from app.pihole.client import PiholeClient, PiholeError
 from app.pihole.reservations import HostDiff
 from app.pihole.sync import apply_sync, plan_sync
 from app.presence import evaluate_presence, purge_sightings
+from app.providers.pihole.client import PiholeClient, PiholeError
 from app.syncmode import load_sync_mode, load_sync_mode_with
 
 log = logging.getLogger("janus.worker")

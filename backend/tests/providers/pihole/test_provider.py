@@ -1,0 +1,169 @@
+import pytest
+
+from app.config import settings
+from app.enforcement.sync import apply_sync, plan_sync
+from app.models import Access, Device, Group, Setting
+from app.providers import registry
+from app.providers.base import (
+    Capability,
+    DnsProbe,
+    DnsQueryLog,
+    HealthCheck,
+    LeaseControl,
+    Policy,
+    Reservation,
+    ReservationStore,
+    Role,
+)
+from app.providers.pihole import SPEC, open_pihole
+from app.providers.pihole.client import PiholeClient, PiholeError, shared_session
+from app.providers.pihole.codec import parse
+from app.providers.pihole.provider import PiholeConfig, PiholeProvider
+from tests.fakes import FakePihole
+
+CFG = PiholeConfig(url="http://192.168.1.220:1000", password="pw", lease="24h")
+
+
+def _group(db):
+    g = Group(name="People", color="#6FB7FF", icon="device", range_start="192.168.1.10", range_end="192.168.1.19",
+              default_access=Access.authorized)
+    db.add(g)
+    db.flush()
+    return g
+
+
+def _device(db, group, name, mac, ip, access=Access.authorized):
+    db.add(Device(mac=mac, name=name, hostname=name.lower().replace("_", "-"), group=group, static_ip=ip,
+                  access=access))
+    db.flush()
+
+
+def test_spec_declares_what_the_provider_implements():
+    p = PiholeProvider(FakePihole(), CFG)
+    for proto in (ReservationStore, LeaseControl, DnsQueryLog, DnsProbe, HealthCheck):
+        assert isinstance(p, proto)
+    assert Capability.QUARANTINE in SPEC.capabilities and SPEC.policies == {Policy.FULL, Policy.LAN_ONLY}
+    assert SPEC.roles == {Role.DHCP, Role.DNS} and SPEC.provider_class is PiholeProvider
+    assert SPEC.config_model is PiholeConfig and SPEC.secret_fields == {"password"}
+    assert registry.get_spec("pihole") is SPEC
+    assert [r.path for r in SPEC.router.routes] == ["/preflight"]
+
+
+def test_env_defaults_come_from_todays_settings(monkeypatch):
+    monkeypatch.setattr(settings, "pihole_url", "http://10.0.0.2")
+    monkeypatch.setattr(settings, "pihole_password", "secret")
+    monkeypatch.setattr(settings, "reservation_lease", "12h")
+    assert SPEC.env_defaults() == {"url": "http://10.0.0.2", "password": "secret", "lease": "12h"}
+    assert PiholeConfig(url="http://10.0.0.2").model_dump() == {"url": "http://10.0.0.2", "password": "", "lease": "24h"}
+
+
+def test_codec_round_trip_is_byte_identical_to_before():
+    from app.providers.pihole.codec import render
+    lan = Reservation("00:00:5E:00:53:20", "plug", "192.168.1.120", Policy.LAN_ONLY)
+    assert render(lan, "24h") == "00:00:5e:00:53:20,set:lanonly,192.168.1.120,plug,24h"
+    assert parse(render(lan, "24h"), "24h").reservation == lan
+    assert parse("00:00:5e:00:53:20,set:lanonly,192.168.1.120,plug,12h", "24h").canonical is False
+    assert parse("00:00:5E:00:53:20,set:lanonly,192.168.1.120,plug,24h", "24h").canonical is True
+    assert parse("not,a,reservation", "24h").reservation is None
+
+
+def test_pihole_plan_is_unchanged_after_refactor(db):
+    # Expected values are the as_dict() of app.pihole.sync.plan_sync (pre-refactor code) on the same scenario.
+    g = _group(db)
+    _device(db, g, "LAPTOP_A", "00:00:5E:00:53:10", "192.168.1.10")
+    fake = FakePihole(hosts=["00:00:5e:00:53:99,192.168.1.99,nas,24h", "00:00:5E:00:53:10,192.168.1.10,laptop-a,12h"])
+    diff = plan_sync(db, PiholeProvider(fake, CFG), "pihole", SPEC.policies)
+    store = PiholeProvider(fake, CFG)
+    # First run, nothing recorded yet: the nas line is in Janus' exact format, so it is recognised as Janus' own.
+    assert diff.as_dict(store.describe) == {
+        "to_add": ["00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"],
+        "to_remove": ["00:00:5E:00:53:10,192.168.1.10,laptop-a,12h", "00:00:5e:00:53:99,192.168.1.99,nas,24h"],
+        "unmanaged": [],
+        "failed": [],
+    }
+
+
+def test_pihole_plan_is_unchanged_after_refactor_with_written_macs(db):
+    # Same check on an upgraded install (written MACs migrated by 0008); only the duplicate message lost
+    # its " in Pi-hole" suffix (ruling R20).
+    g = _group(db)
+    _device(db, g, "LAPTOP_A", "00:00:5E:00:53:10", "192.168.1.10")
+    _device(db, g, "PHONE_A", "00:00:5E:00:53:11", "192.168.1.99")
+    _device(db, g, "PLUG", "00:00:5E:00:53:20", "192.168.1.12", Access.lan_only)
+    _device(db, g, "BANNED", "00:00:5E:00:53:22", "192.168.1.13", Access.blocked)
+    db.add(Setting(key="provider.pihole.written_macs", value=["00:00:5E:00:53:10", "00:00:5E:00:53:44"]))
+    db.flush()
+    fake = FakePihole(hosts=["00:00:5e:00:53:99,192.168.1.99,nas,24h", "00:00:5E:00:53:10,192.168.1.10,laptop-a,12h",
+                             "00:00:5E:00:53:20,set:lanonly,192.168.1.12,plug,24h",
+                             "00:00:5e:00:53:22,192.168.1.13,banned,24h",
+                             "00:00:5e:00:53:44,192.168.1.14,old-phone,24h", "not a reservation"])
+    store = PiholeProvider(fake, CFG)
+    assert plan_sync(db, store, "pihole", SPEC.policies).as_dict(store.describe) == {
+        "to_add": ["00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"],
+        "to_remove": ["00:00:5E:00:53:10,192.168.1.10,laptop-a,12h", "00:00:5e:00:53:22,192.168.1.13,banned,24h",
+                      "00:00:5e:00:53:44,192.168.1.14,old-phone,24h"],
+        "unmanaged": ["00:00:5e:00:53:99,192.168.1.99,nas,24h", "not a reservation"],
+        "failed": ["00:00:5e:00:53:11,192.168.1.99,phone-a,24h: would duplicate 00:00:5e:00:53:99,192.168.1.99,nas,24h,"
+                   " skipped"],
+    }
+
+
+def test_apply_writes_the_same_lines_as_before(db):
+    g = _group(db)
+    _device(db, g, "LAPTOP_A", "00:00:5E:00:53:10", "192.168.1.13")
+    fake = FakePihole(["00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"])
+    apply_sync(db, PiholeProvider(fake, CFG), "pihole", SPEC.policies)
+    assert fake.writes == [
+        ("remove", "00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"),
+        ("add", "00:00:5e:00:53:10,192.168.1.13,laptop-a,24h"),
+    ]
+    assert db.get(Setting, "provider.pihole.written_macs").value == ["00:00:5E:00:53:10"]
+
+
+def test_rejected_line_is_a_provider_error():
+    fake = FakePihole(reject={"00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"})
+    with pytest.raises(PiholeError) as exc:
+        PiholeProvider(fake, CFG).add_reservation(Reservation("00:00:5E:00:53:10", "laptop-a", "192.168.1.10"))
+    assert exc.value.rejected
+
+
+def test_force_renew_revokes_the_lease_by_ip():
+    fake = FakePihole()
+    PiholeProvider(fake, CFG).force_renew("00:00:5E:00:53:10", "192.168.1.241")
+    PiholeProvider(fake, CFG).force_renew("00:00:5E:00:53:11", None)
+    assert fake.writes == [("revoke", "192.168.1.241")]
+
+
+def test_query_log_is_normalized():
+    fake = FakePihole()
+    fake.queries = [{"time": 100.0, "domain": "ads.example", "type": "A", "status": "GRAVITY",
+                     "reply": {"type": "IP"}, "client": {"ip": "192.168.1.10"}}]
+    [q], total = PiholeProvider(fake, CFG).query_log("192.168.1.10", 0, 200)
+    assert (q.domain, q.blocked, q.reply, total) == ("ads.example", True, "IP", 1)
+    assert fake.last_query == {"client_ip": "192.168.1.10", "since": 0, "until": 200, "length": 5000, "disk": False}
+    PiholeProvider(fake, CFG).query_log("192.168.1.10", 0, 25 * 3600, limit=10)
+    assert fake.last_query["disk"] is True and fake.last_query["length"] == 10
+
+
+def test_probe_host_and_health_check():
+    fake = FakePihole(hosts=["00:00:5e:00:53:10,192.168.1.10,laptop-a,24h", "garbage"])
+    p = PiholeProvider(fake, CFG)
+    assert p.probe_host() == "192.168.1.220"
+    assert p.check() == "2 reservations"
+    with pytest.raises(PiholeError):
+        PiholeProvider(FakePihole(fail=True), CFG).check()
+
+
+def test_context_manager_delegates_to_the_client():
+    with pytest.raises(PiholeError):
+        with PiholeProvider(FakePihole(fail=True), CFG):
+            pass
+    with PiholeProvider(FakePihole(), CFG) as p:
+        assert isinstance(p, PiholeProvider)
+
+
+def test_open_pihole_shares_one_login_per_url():
+    provider = open_pihole(PiholeConfig(url="http://192.168.1.220:1000", password="pw"))
+    client = provider.client
+    assert isinstance(client, PiholeClient) and client._shared is shared_session("http://192.168.1.220:1000")
+    client.close()
