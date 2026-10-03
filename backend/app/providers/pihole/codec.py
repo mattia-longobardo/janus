@@ -19,6 +19,8 @@ def parse(raw: str, lease: str) -> CurrentEntry:
     """A line Janus can read becomes a reservation; it is canonical when it carries the configured lease (MAC case
     and spacing do not matter: the diff compares parsed fields). Any other line keeps its MAC and IP, so additions
     that would duplicate them are refused."""
+    # entry.ip always comes from _identity: the duplicate guard must see the address whatever field holds it.
+    found_mac, found_ip = _identity(raw)
     parts = [p.strip() for p in raw.split(",")]
     lan_only = LAN_ONLY_TAG in parts
     parts = [p for p in parts if p != LAN_ONLY_TAG]
@@ -30,9 +32,8 @@ def parse(raw: str, lease: str) -> CurrentEntry:
             pass
         else:
             policy = Policy.LAN_ONLY if lan_only else Policy.FULL
-            return CurrentEntry(raw, raw, mac, ip, Reservation(mac, hostname, ip, policy), line_lease == lease)
-    mac, ip = _identity(raw)
-    return CurrentEntry(raw, raw, mac, ip, None)
+            return CurrentEntry(raw, raw, mac, found_ip, Reservation(mac, hostname, ip, policy), line_lease == lease)
+    return CurrentEntry(raw, raw, found_mac, found_ip, None)
 
 
 def _identity(raw: str) -> tuple[str | None, str | None]:
