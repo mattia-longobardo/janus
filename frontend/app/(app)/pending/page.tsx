@@ -126,8 +126,8 @@ function PendingDevice({
             ) : (
               <ol className="flex flex-col">
                 {events.map((event) => (
-                  <li key={event.id} className="grid grid-cols-[96px_14px_1fr] items-start gap-3 py-[7px]">
-                    <span className="font-mono text-xs text-faint">{time(event.ts)}</span>
+                  <li key={event.id} className="grid grid-cols-[14px_1fr] items-start gap-x-3 gap-y-0.5 py-[7px] sm:grid-cols-[96px_14px_1fr] sm:gap-3">
+                    <span className="col-start-2 font-mono text-xs text-faint sm:col-start-auto">{time(event.ts)}</span>
                     <span className={`mt-[5px] size-2 rounded-full ${EVENT_DOT[event.type] ?? "bg-muted"}`} aria-hidden />
                     <span className="text-sm text-text2">{describeEvent(event)}</span>
                   </li>

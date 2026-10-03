@@ -11,7 +11,8 @@ export function EventList({ events }: { events: EventItem[] }) {
   return (
     <ol className="flex flex-col">
       {events.map((event) => (
-        <li key={event.id} className="grid grid-cols-[96px_1fr] gap-3 border-b border-row py-2.5 last:border-0">
+        // Phones put the timestamp on its own line above the message; from sm up it gets a column.
+        <li key={event.id} className="grid grid-cols-1 gap-0.5 border-b border-row py-2.5 last:border-0 sm:grid-cols-[96px_1fr] sm:gap-3">
           <span className="font-mono text-xs text-faint">{formatDateTime(event.ts, settings.timezone, settings.time_format)}</span>
           <span className="flex min-w-0 flex-col gap-0.5">
             <span className="text-sm text-text2">{describeEvent(event)}</span>

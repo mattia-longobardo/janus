@@ -98,8 +98,9 @@ export default function EventsPage() {
         ) : (
           <ol className="flex flex-col">
             {events.map((event) => (
-              <li key={event.id} className="grid grid-cols-[96px_14px_1fr] items-start gap-3 border-b border-row py-[9px] last:border-0 sm:grid-cols-[110px_14px_1fr_auto]">
-                <span className="font-mono text-xs text-faint">{formatDateTime(event.ts, settings.timezone, settings.time_format)}</span>
+              <li key={event.id} className="grid grid-cols-[14px_1fr] items-start gap-x-3 gap-y-0.5 border-b border-row py-[9px] last:border-0 sm:grid-cols-[110px_14px_1fr_auto] sm:gap-3">
+                {/* On phones the timestamp sits on its own line above the message. */}
+                <span className="col-start-2 font-mono text-xs text-faint sm:col-start-auto">{formatDateTime(event.ts, settings.timezone, settings.time_format)}</span>
                 <span aria-hidden className={clsx("mt-[5px] size-2 rounded-full", TONE_DOT[eventTone(event.type)])} />
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="text-sm text-text2">{describeEvent(event)}</span>
@@ -110,7 +111,7 @@ export default function EventsPage() {
                     type="button"
                     title="Show only this device"
                     onClick={() => setMac(event.mac ?? "")}
-                    className="col-start-3 justify-self-start font-mono text-xs text-muted hover:text-text sm:col-start-auto sm:justify-self-end"
+                    className="col-start-2 justify-self-start font-mono text-xs text-muted hover:text-text sm:col-start-auto sm:justify-self-end"
                   >
                     {event.mac}
                   </button>
