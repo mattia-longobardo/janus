@@ -201,3 +201,17 @@ def test_pihole_api_uses_the_role_config(db):
         pc.save_role(db, Role.DHCP, "demo", {})
         cfg, dhcp_kind = current_config(db)
         assert cfg.url == "http://10.0.0.2" and dhcp_kind == "demo"   # Pi-hole kept as DNS: the cutover refuses
+
+
+def test_dns_probe_host_follows_the_env_pihole_without_a_saved_config(db):
+    from app.providers import runtime
+
+    assert db.get(Setting, pc.KEY) is None   # nothing saved from Settings: env only, as in the sentinel container
+    assert runtime.dns_probe_host(db) == "192.168.1.220"
+
+
+def test_dns_probe_host_is_off_without_a_dns_provider_in_the_env(db, monkeypatch):
+    from app.providers import runtime
+
+    monkeypatch.setattr(settings, "pihole_password", "")
+    assert runtime.dns_probe_host(db) is None
