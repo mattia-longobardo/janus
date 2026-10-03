@@ -35,7 +35,7 @@ class ApprovalOut(BaseModel):
 
 
 def _enforce(db: Session, dhcp: DhcpRef | None, revoke_mac: str | None, revoke_ip: str | None) -> str:
-    """Sync the reservations now, then make the device renew its lease (when `revoke_mac` is given)."""
+    """Sync the reservations now, then make the device renew its lease (when its MAC or IP is given)."""
     if dhcp is None:
         return "no provider"
     if load_sync_mode(db) != "apply":
@@ -44,8 +44,8 @@ def _enforce(db: Session, dhcp: DhcpRef | None, revoke_mac: str | None, revoke_i
     try:
         with factory() as store:
             apply_sync(db, store, kind, policies)
-            if revoke_mac and isinstance(store, LeaseControl):
-                store.force_renew(revoke_mac, revoke_ip)
+            if (revoke_mac or revoke_ip) and isinstance(store, LeaseControl):
+                store.force_renew(revoke_mac or "", revoke_ip)
     except ProviderError as exc:
         db.commit()
         return f"failed: {exc}"

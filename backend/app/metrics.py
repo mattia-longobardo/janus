@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.health import annotate
 from app.models import Access, Device, Event, Setting
+from app.providers.base import Role
+from app.providers.config import load_role
 from app.syncmode import load_sync_mode
 
 log = logging.getLogger("janus.metrics")
@@ -90,8 +92,9 @@ def render_metrics(db: Session) -> str:
     families.append(scan)
 
     provider = _Family("provider_up", "gauge", "1 when the provider holding the role answers, 0 while it is marked down.")
-    for role in ("dhcp", "dns"):
-        provider.add(0 if _setting(db, f"{role}.down_since") else 1, role=role)
+    for role in (Role.DHCP, Role.DNS):
+        if load_role(db, role) is not None:   # a role that is off has no provider to be up or down
+            provider.add(0 if _setting(db, f"{role.value}.down_since") else 1, role=role.value)
     families.append(provider)
 
     sentinel = _Family("sentinel_up", "gauge", "1 when the sentinel heartbeat is fresh, 0 while it is marked down.")

@@ -43,6 +43,11 @@ def test_sync_talks_to_the_dhcp_role(db, monkeypatch, capsys):
     assert store.writes == [("add", "00:00:5E:00:53:10,192.168.1.10,laptop-a,full")]
 
 
-def test_provider_commands_are_registered():
+def test_provider_commands_are_registered(capsys):
     with pytest.raises(SystemExit):
-        cli.main(["cutover"])   # --pihole-password-env is required: the command exists and parses its own args
+        cli.main(["cutover"])
+    assert "--pihole-password-env" in capsys.readouterr().err   # the cutover parser itself complained
+    with pytest.raises(SystemExit):
+        cli.main(["--help"])
+    usage = capsys.readouterr().out
+    assert all(name in usage for name in ("preflight", "backup", "cutover", "rollback"))

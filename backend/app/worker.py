@@ -53,6 +53,13 @@ def _mark_up(db: Session, service: str, *, provider: str | None = None) -> None:
         state.value = None
 
 
+def _clear_down(db: Session, service: str) -> None:
+    """Forget an outage without announcing a recovery: the role was turned off, nothing came back."""
+    state = db.get(Setting, f"{service}.down_since")
+    if state is not None and state.value is not None:
+        state.value = None
+
+
 def dhcp_for(db: Session) -> DhcpRef | None:
     return reservation_provider(db)
 
@@ -64,7 +71,7 @@ def reconcile_once(
     apply: bool | None = None,
 ) -> ReservationDiff | None:
     """Bring the DHCP provider's reservations in line with Janus. Without a provider that takes reservations there
-    is nothing to do."""
+    is nothing to do, and an outage left open from before is dropped silently."""
     with session_factory() as db:
         try:
             dhcp = factory_for(db)
@@ -75,6 +82,8 @@ def reconcile_once(
             db.commit()
             return None
         if dhcp is None:
+            _clear_down(db, Role.DHCP.value)
+            db.commit()
             return None
         kind, policies, factory = dhcp
         provider = label(kind)
@@ -102,11 +111,11 @@ DNS_MAX_SILENCE = timedelta(minutes=3)
 def dns_check_once(session_factory: SessionFactory, now: datetime | None = None) -> bool | None:
     """DNS is down when the sentinel (host network, like every LAN device) has not had an answer for three
     minutes. Before the sentinel has recorded any answer there is nothing to judge, and a DNS provider that cannot
-    be probed is never judged (an outage left open from before is closed)."""
+    be probed is never judged (an outage left open from before is dropped silently)."""
     with session_factory() as db:
         rc = load_role(db, Role.DNS)
         if rc is None or Capability.DNS_PROBE not in role_capabilities(rc.spec, Role.DNS):
-            _mark_up(db, Role.DNS.value)
+            _clear_down(db, Role.DNS.value)
             db.commit()
             return None
         now = now or datetime.now(UTC)

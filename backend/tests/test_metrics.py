@@ -25,7 +25,16 @@ def _seed(db):
     db.flush()
 
 
-def test_metrics_text(db):
+def _roles(monkeypatch, dhcp="", dns=""):
+    from app.config import settings
+    monkeypatch.setattr(settings, "dhcp_provider", dhcp)
+    monkeypatch.setattr(settings, "dns_provider", dns)
+    monkeypatch.setattr(settings, "pihole_url", "http://192.168.1.220:1000")
+    monkeypatch.setattr(settings, "pihole_password", "pw")
+
+
+def test_metrics_text(db, monkeypatch):
+    _roles(monkeypatch)
     _seed(db)
     text = render_metrics(db)
     assert "# TYPE janus_devices gauge" in text
@@ -43,6 +52,16 @@ def test_metrics_text(db):
     assert 'janus_sync_mode_info{mode="dry-run"} 1' in text
     assert 'janus_events_total{type="device.new"} 2' in text
     assert text.endswith("\n")
+
+
+def test_provider_up_has_no_sample_for_a_role_that_is_off(db, monkeypatch):
+    _roles(monkeypatch, dhcp="none")
+    db.add(Setting(key="dhcp.down_since", value=NOW.isoformat()))
+    db.flush()
+    text = render_metrics(db)
+    assert 'janus_provider_up{role="dhcp"}' not in text and 'janus_provider_up{role="dns"} 1' in text
+    _roles(monkeypatch, dhcp="none", dns="none")
+    assert "janus_provider_up{" not in render_metrics(db)
 
 
 def test_metrics_server_serves_only_metrics(db):

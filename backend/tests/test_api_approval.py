@@ -132,3 +132,14 @@ def test_block_apply_asks_the_provider_to_renew_and_leaves_no_reservation(client
     device, _ = seed_pending(db)
     assert client.post(f"/api/devices/{device.id}/block").json()["enforcement"] == "applied"
     assert store.writes == [("renew", "00:00:5E:00:53:41")]
+
+
+def test_block_apply_revokes_the_lease_of_a_device_without_mac(client, db, monkeypatch):
+    monkeypatch.setattr(settings, "sync_mode", "apply")
+    device = Device(mac=None, name="ghost", hostname="ghost", access=Access.pending, last_ip="192.168.1.245")
+    db.add(device)
+    db.flush()
+    fake = FakePihole()
+    _use(client, fake)
+    assert client.post(f"/api/devices/{device.id}/block").json()["enforcement"] == "applied"
+    assert fake.writes == [("revoke", "192.168.1.245")]

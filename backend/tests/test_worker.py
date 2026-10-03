@@ -90,6 +90,15 @@ def test_reconcile_without_dhcp_provider_is_noop(db):
     assert _count(db, "infra.down") == 0
 
 
+def test_turning_dhcp_off_clears_an_open_outage_silently(db):
+    _seed(db)
+    reconcile_once(lambda: nullcontext(db), _pihole(FakePihole(fail=True)), apply=True)
+    assert db.get(Setting, "dhcp.down_since").value is not None
+    assert reconcile_once(lambda: nullcontext(db), lambda _db: None) is None
+    assert db.get(Setting, "dhcp.down_since").value is None
+    assert _count(db, "infra.up") == 0
+
+
 def test_reconcile_failure_marks_dhcp_down_with_provider_label(db):
     _seed(db)
     factory_for = lambda _db: ("pihole", SPEC.policies, lambda: PiholeProvider(FakePihole(fail=True), CFG))  # noqa: E731

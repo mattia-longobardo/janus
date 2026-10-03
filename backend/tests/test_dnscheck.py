@@ -78,7 +78,7 @@ def test_dns_outage_is_judged_from_the_sentinel_answers(db, monkeypatch):
     assert db.get(Setting, "dns.last_ok").value == (now + timedelta(minutes=6)).isoformat()
 
 
-def test_dns_check_is_off_without_a_dns_probe_and_closes_an_open_outage(db, monkeypatch):
+def test_dns_check_is_off_without_a_dns_probe_and_drops_an_open_outage_silently(db, monkeypatch):
     from datetime import UTC, datetime
 
     monkeypatch.setattr(db, "commit", db.flush)
@@ -89,9 +89,8 @@ def test_dns_check_is_off_without_a_dns_probe_and_closes_an_open_outage(db, monk
     db.flush()
     assert dns_check_once(lambda: _Session(db), now) is None
     assert db.get(Setting, "dns.down_since").value is None
-    assert [e.type for e in db.scalars(select(Event).where(Event.type.like("infra.%")))] == ["infra.up"]
     assert dns_check_once(lambda: _Session(db), now) is None
-    assert db.scalar(select(Event).where(Event.type == "infra.down")) is None
+    assert list(db.scalars(select(Event).where(Event.type.like("infra.%")))) == []
 
 
 def _heartbeat_path():
