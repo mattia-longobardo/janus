@@ -187,3 +187,25 @@ def test_rollback_removes_only_the_guest_range_before_dropping_app_sudo(db, seed
     assert admin.config["misc"]["dnsmasq_lines"] == ["address=/local/192.168.1.220", *QUARANTINE_LINES]
     assert admin.patches[-3:] == [{"misc": {"dnsmasq_lines": ["address=/local/192.168.1.220", *QUARANTINE_LINES]}},
                                   {"dhcp": {"active": False}}, {"webserver": {"api": {"app_sudo": False}}}]
+
+
+def test_rollback_turns_dhcp_off_even_when_the_guest_range_cannot_be_removed(db, seeded, pool):
+    from app.providers.pihole.client import PiholeError
+
+    admin = FakeAdmin()
+    take_backup(db, admin)
+    cutover(db, admin, CFG, dhcp_kind="pihole")
+    real_patch = admin.patch_config
+
+    def patch(config):
+        if "misc" in config:
+            raise PiholeError("PATCH /api/config failed: HTTP 403 forbidden", status=403)
+        real_patch(config)
+
+    admin.patch_config = patch
+    with pytest.raises(PiholeError, match="guest range"):
+        rollback(db, admin)
+    assert admin.config["dhcp"]["active"] is False
+    assert load_sync_mode(db) == "dry-run"
+    assert admin.config["webserver"]["api"]["app_sudo"] is True   # kept so a second rollback can remove the range
+    assert GUEST_LINE in admin.config["misc"]["dnsmasq_lines"]

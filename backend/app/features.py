@@ -38,5 +38,6 @@ def collect(db: Session) -> dict[str, dict[str, Any]]:
             out[name] = provider(db)
         except Exception:
             log.exception("feature provider %s failed", name)
+            db.rollback()   # a failed query must not poison the session for the next provider
             out[name] = {}
     return out

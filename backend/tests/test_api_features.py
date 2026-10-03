@@ -43,3 +43,23 @@ def test_guests_feature_off_with_provider_without_guest_policy(client, db):
 def test_guests_feature_on_without_any_provider(client, db):
     pc.save_role(db, Role.DHCP, None, None)
     assert client.get("/api/features").json()["guests"] == {"enabled": True, "pool": False}
+
+
+def test_a_failing_provider_rolls_the_session_back_before_the_next(monkeypatch):
+    calls = []
+
+    class Session:
+        def rollback(self):
+            calls.append("rollback")
+
+    def boom(db):
+        calls.append("boom")
+        raise RuntimeError("query failed: transaction aborted")
+
+    def next_one(db):
+        calls.append("next")
+        return {"ok": True}
+
+    monkeypatch.setattr(features, "FEATURE_PROVIDERS", {"notify": boom, "guests": next_one})
+    assert features.collect(Session()) == {"notify": {}, "guests": {"ok": True}}
+    assert calls == ["boom", "rollback", "next"]

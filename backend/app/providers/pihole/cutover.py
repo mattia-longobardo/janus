@@ -219,9 +219,18 @@ def cutover(db: Session, admin: PiholeAdmin, cfg: PiholeConfig, *, dhcp_kind: st
 
 def rollback(db: Session, admin: PiholeAdmin) -> dict[str, Any]:
     # dnsmasq serves DHCP on any dhcp-range: Janus' guest range goes first, while Janus can still write.
-    write_guest_range(admin, None, "")
+    guest_error: PiholeError | None = None
+    try:
+        write_guest_range(admin, None, "")
+    except PiholeError as exc:
+        guest_error = exc
+    # Whatever happened to the guest range, Pi-hole's own DHCP goes off and Janus stops writing.
     admin.patch_config({"dhcp": {"active": False}})
-    admin.patch_config({"webserver": {"api": {"app_sudo": False}}})
     set_sync_mode(db, "dry-run", "cli rollback")
     db.commit()
+    if guest_error is not None:
+        # app_sudo stays on so that running rollback again can still remove the range.
+        raise PiholeError(f"DHCP is off, but Janus' guest range (dhcp-range=tag:guest,...) could not be removed and "
+                          f"still serves guests: {guest_error}. Run rollback again or remove the line in Pi-hole.")
+    admin.patch_config({"webserver": {"api": {"app_sudo": False}}})
     return {"dhcp": {"active": False}, "sync_mode": load_sync_mode(db)}

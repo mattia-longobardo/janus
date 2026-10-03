@@ -38,7 +38,7 @@ Inside the `janus` container:
 | `preflight` | Check that the DHCP cutover can start; non-zero exit while something blocks |
 | `backup` | Save a Pi-hole Teleporter export and a Janus data dump to `janus/backups/<timestamp>/` |
 | `cutover --pihole-password-env VAR` | Enable Pi-hole DHCP with the quarantine pool and switch Janus to `apply` |
-| `rollback --pihole-password-env VAR` | Turn Pi-hole DHCP off (removing the guest range first) and switch Janus back to `dry-run` |
+| `rollback --pihole-password-env VAR` | Turn Pi-hole DHCP off (removing the guest range first) and switch Janus back to `dry-run`. If the guest range cannot be removed, DHCP is still turned off and Janus still goes to `dry-run`, but the command fails and leaves `app_sudo` on: run it again or remove the `dhcp-range=tag:guest,...` line in Pi-hole |
 
 While Janus is in `apply` with a DHCP provider that serves DHCP itself (Pi-hole after `cutover`), changing the DHCP provider in Settings (or `PUT /api/providers/dhcp`) is refused with 409 "run janus rollback first": roll back first, so the LAN never has two DHCP servers, then switch. The worker also remembers which box holds DHCP (provider kind and URL, setting `dhcp.identity`): when it changes, including through env variables, Janus drops back to `dry-run` (a `sync.mode` event with actor `system`) until an admin switches to `apply` again.
 
