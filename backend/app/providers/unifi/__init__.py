@@ -3,6 +3,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.netconfig import load_netconfig
 from app.providers.base import Capability, ProviderSpec, Role
+from app.providers.unifi import api
 from app.providers.unifi.client import UnifiClient
 from app.providers.unifi.provider import KIND, POLICIES, UnifiConfig, UnifiProvider
 
@@ -33,5 +34,6 @@ SPEC = ProviderSpec(
     env_defaults=lambda: {"url": settings.unifi_url, "username": settings.unifi_username,
                           "password": settings.unifi_password},
     open=open_unifi,
+    router=api.router,
     docs_url="https://ubntwiki.com/products/software/unifi-controller/api",
 )
