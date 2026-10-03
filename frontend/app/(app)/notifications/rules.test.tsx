@@ -14,6 +14,7 @@ describe("RulesTable", () => {
           { event_type: "device.offline", label: "Known device offline", email: false, gotify: true, priority: 5, default_priority: 5 },
         ]}
         onChange={onChange}
+        channels={["email", "gotify"]}
       />,
     );
     await userEvent.click(screen.getByRole("checkbox", { name: "Known device offline email" }));
@@ -24,7 +25,7 @@ describe("RulesTable", () => {
 describe("RulesTable hints", () => {
   it("explains when an event is muted", () => {
     render(
-      <RulesTable rules={[{ event_type: "device.offline", label: "Known device offline", email: false, gotify: true, priority: 5, default_priority: 5 }]} onChange={vi.fn()} />,
+      <RulesTable rules={[{ event_type: "device.offline", label: "Known device offline", email: false, gotify: true, priority: 5, default_priority: 5 }]} onChange={vi.fn()} channels={["email", "gotify"]} />,
     );
     expect(screen.getByText("Muted during maintenance windows")).toBeTruthy();
     expect((screen.getByRole("checkbox", { name: "Known device offline Gotify" }) as HTMLInputElement).checked).toBe(true);
@@ -37,7 +38,7 @@ describe("RulesTable priority", () => {
 
   it("changes the Gotify priority of one event", async () => {
     const onChange = vi.fn();
-    render(<RulesTable rules={[rule]} onChange={onChange} />);
+    render(<RulesTable rules={[rule]} onChange={onChange} channels={["email", "gotify"]} />);
     const select = screen.getByRole("combobox", { name: "Known device offline Gotify priority" }) as HTMLSelectElement;
     expect(select.value).toBe("5");
     expect(screen.getByRole("option", { name: "5 · normal (default)" })).toBeTruthy();
@@ -46,13 +47,31 @@ describe("RulesTable priority", () => {
   });
 
   it("marks custom priorities and disables the select when Gotify is off", () => {
-    const { rerender } = render(<RulesTable rules={[{ ...rule, priority: 9 }]} onChange={vi.fn()} />);
+    const { rerender } = render(<RulesTable rules={[{ ...rule, priority: 9 }]} onChange={vi.fn()} channels={["email", "gotify"]} />);
     expect(screen.getByText("custom · default 5")).toBeTruthy();
-    rerender(<RulesTable rules={[{ ...rule, gotify: false }]} onChange={vi.fn()} />);
+    rerender(<RulesTable rules={[{ ...rule, gotify: false }]} onChange={vi.fn()} channels={["email", "gotify"]} />);
     expect((screen.getByRole("combobox", { name: "Known device offline Gotify priority" }) as HTMLSelectElement).disabled).toBe(true);
   });
 
   it("names the Gotify priority bands", () => {
     expect([0, 2, 4, 8, 10].map(priorityLabel)).toEqual(["0 · silent", "2 · low", "4 · normal", "8 · high", "10 · max"]);
+  });
+});
+
+describe("RulesTable channels", () => {
+  const rule = { event_type: "device.offline", label: "Known device offline", email: false, gotify: true, priority: 5, default_priority: 5 };
+
+  it("renders only the columns of ready channels", () => {
+    render(<RulesTable rules={[rule]} onChange={vi.fn()} channels={["gotify"]} />);
+    expect(screen.queryByText("Email")).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Known device offline email" })).toBeNull();
+    expect(screen.getByText("Gotify")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Known device offline Gotify" })).toBeTruthy();
+  });
+
+  it("drops the priority column when Gotify is not ready", () => {
+    render(<RulesTable rules={[rule]} onChange={vi.fn()} channels={["email"]} />);
+    expect(screen.queryByText("Priority")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
   });
 });

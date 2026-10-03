@@ -5,8 +5,10 @@ import type { CSSProperties } from "react";
 
 import { devicesCsv } from "@/components/ip-plan-export";
 import { Button, Card, Notice, PageHeader } from "@/components/ui";
-import { PENDING_COLOR } from "@/lib/group-icons";
-import { buildCells, lastOctet, rangeUsage, type Cell } from "@/lib/ipplan";
+import { useFeatures } from "@/lib/features";
+import { PENDING_COLOR, guestLook } from "@/lib/group-icons";
+import { buildCells, guestPool, inPool, lastOctet, poolUsage, rangeUsage, type Cell } from "@/lib/ipplan";
+import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Device, Group } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
@@ -24,6 +26,13 @@ function tint(color: string): CSSProperties {
 
 export default function IpPlanPage() {
   const { settings } = useSettings();
+  const { features } = useFeatures();
+  const quarantine = hasCapability(features, "dhcp", "quarantine");
+  const guestColor = guestLook(features).color;
+  // The pool only matters while guests are on; guests are not in /devices, so they come from their own list.
+  const pool = features?.guests?.enabled ? guestPool(settings.network) : null;
+  const guestsRes = useResource<Device[]>(pool ? "/devices?access=guest" : null);
+  const guestUsage = pool ? poolUsage(pool, guestsRes.data ?? []) : null;
   const devicesRes = useResource<Device[]>("/devices");
   const groupsRes = useResource<Group[]>("/groups");
   const devices = devicesRes.data ?? [];
@@ -39,7 +48,8 @@ export default function IpPlanPage() {
     if (cell.octet === 0 || cell.octet === 255) return UNASSIGNED;
     if (cell.device) return solid(cell.group?.color ?? GATEWAY_COLOR);
     if (cell.group) return tint(cell.group.color);
-    if (cell.octet >= qStart && cell.octet <= qEnd) return tint(PENDING_COLOR);
+    if (quarantine && cell.octet >= qStart && cell.octet <= qEnd) return tint(PENDING_COLOR);
+    if (inPool(cell.octet, pool)) return tint(guestColor);
     return UNASSIGNED;
   }
 
@@ -47,7 +57,8 @@ export default function IpPlanPage() {
     if (cell.octet === gateway) return `.${cell.octet} — gateway`;
     if (cell.device) return `.${cell.octet} — ${cell.device.name}`;
     if (cell.group) return `.${cell.octet} — free in ${cell.group.name}`;
-    if (cell.octet >= qStart && cell.octet <= qEnd) return `.${cell.octet} — quarantine pool`;
+    if (quarantine && cell.octet >= qStart && cell.octet <= qEnd) return `.${cell.octet} — quarantine pool`;
+    if (inPool(cell.octet, pool)) return `.${cell.octet} — guest pool`;
     return `.${cell.octet} — unassigned`;
   }
 
@@ -97,10 +108,18 @@ export default function IpPlanPage() {
               <span className="size-3.5 rounded" style={tint("#6FB7FF")} />
               free in range
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="size-3.5 rounded" style={tint(PENDING_COLOR)} />
-              quarantine pool
-            </span>
+            {quarantine && (
+              <span className="flex items-center gap-1.5">
+                <span className="size-3.5 rounded" style={tint(PENDING_COLOR)} />
+                quarantine pool
+              </span>
+            )}
+            {pool && (
+              <span className="flex items-center gap-1.5">
+                <span className="size-3.5 rounded" style={tint(guestColor)} />
+                guest pool
+              </span>
+            )}
             <span className="flex items-center gap-1.5">
               <span className="size-3.5 rounded border border-line" />
               unassigned
@@ -131,18 +150,34 @@ export default function IpPlanPage() {
               </div>
             );
           })}
-          <div className="grid grid-cols-[14px_1fr_auto] items-center gap-3 py-[9px]">
-            <span className="size-3 rounded-[3px]" style={{ background: PENDING_COLOR }} />
-            <span className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium">Quarantine</span>
-              <span className="font-mono text-xs text-faint">
-                .{qStart}–.{qEnd}
+          {quarantine && (
+            <div className="grid grid-cols-[14px_1fr_auto] items-center gap-3 py-[9px]">
+              <span className="size-3 rounded-[3px]" style={{ background: PENDING_COLOR }} />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">Quarantine</span>
+                <span className="font-mono text-xs text-faint">
+                  .{qStart}–.{qEnd}
+                </span>
               </span>
-            </span>
-            <span className="font-mono text-[13px] text-text2">
-              {devices.filter((d) => d.access === "pending").length}/{qEnd - qStart + 1}
-            </span>
-          </div>
+              <span className="font-mono text-[13px] text-text2">
+                {devices.filter((d) => d.access === "pending").length}/{qEnd - qStart + 1}
+              </span>
+            </div>
+          )}
+          {pool && guestUsage && (
+            <div className="grid grid-cols-[14px_1fr_auto] items-center gap-3 py-[9px]">
+              <span className="size-3 rounded-[3px]" style={{ background: guestColor }} />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">Guests</span>
+                <span className="font-mono text-xs text-faint">
+                  .{lastOctet(pool.start)}–.{lastOctet(pool.end)}
+                </span>
+              </span>
+              <span className="font-mono text-[13px] text-text2">
+                {guestUsage.used}/{guestUsage.total}
+              </span>
+            </div>
+          )}
         </Card>
       </div>
     </>

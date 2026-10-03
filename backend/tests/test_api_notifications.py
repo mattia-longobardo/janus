@@ -43,7 +43,10 @@ def test_put_rules(client, db):
     assert client.put("/api/notifications/rules", json=[{"event_type": "nope", "email": True, "gotify": True}]).status_code == 422
 
 
-def test_test_notification_is_queued(client, db):
+def test_test_notification_is_queued(client, db, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "gotify_url", "https://g.example")
+    monkeypatch.setattr(settings, "gotify_token", "tok")
     assert client.post("/api/notifications/test/gotify").status_code == 202
     event = db.scalar(select(Event).where(Event.type == "notify.test"))
     assert event.payload == {"channel": "gotify"}
@@ -75,3 +78,36 @@ def test_put_rules_rejects_out_of_range_priority(client, db):
                               json=[{"event_type": "device.offline", "email": False, "gotify": True, "priority": bad}])
         assert response.status_code == 422
     assert _rule(client, "device.offline")["priority"] == 5
+
+
+def test_channels_round_trip_never_returns_secrets(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "gotify_url", "")
+    monkeypatch.setattr(settings, "gotify_token", "")
+    r = client.put("/api/notifications/channels", json={"gotify": {"url": "https://g.example", "token": "s3cret"}})
+    assert r.status_code == 200
+    assert r.json()["gotify"]["values"] == {"url": "https://g.example", "token": True}
+    assert r.json()["gotify"]["ready"] is True
+    assert "s3cret" not in client.get("/api/notifications/channels").text
+    assert client.get("/api/features").json()["notify"]["gotify"] is True
+
+
+def test_channels_change_event_lists_field_names_only(client, db, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "gotify_url", "")
+    monkeypatch.setattr(settings, "gotify_token", "")
+    client.put("/api/notifications/channels", json={"gotify": {"url": "https://g.example", "token": "s3cret"}})
+    event = db.scalar(select(Event).where(Event.type == "settings.channels"))
+    assert event.payload == {"changed": {"gotify": ["token", "url"]}}
+    assert "s3cret" not in str(event.payload)
+
+
+def test_invalid_channel_value_is_422(client):
+    r = client.put("/api/notifications/channels", json={"email": {"port": "abc"}})
+    assert r.status_code == 422 and "port:" in r.json()["detail"]
+
+
+def test_test_send_on_unconfigured_channel_is_409(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "gotify_url", "")
+    assert client.post("/api/notifications/test/gotify").status_code == 409

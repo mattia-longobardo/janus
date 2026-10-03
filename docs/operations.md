@@ -19,7 +19,7 @@ Logs: `docker logs -f janus-worker` (same for the others). Rotation is 3 × 10 M
 
 | Mode | Behaviour |
 |---|---|
-| `dry-run` | Janus computes and logs the reservation diff; Pi-hole is never written. Approve/block answer `enforcement: dry-run`. |
+| `dry-run` | Janus computes and logs the reservation diff; the DHCP provider is never written. Approve/block answer `enforcement: dry-run`. |
 | `apply` | Reconcile writes the diff every 5 minutes; approve/block write at once and revoke leases. |
 
 The switch happens only through the cutover procedure: see [runbooks/cutover.md](runbooks/cutover.md).
@@ -33,11 +33,16 @@ Inside the `janus` container:
 | Command | Purpose |
 |---|---|
 | `import-csv <file> [--dry-run]` | Import devices from a CSV export and infer group ranges |
-| `sync [--apply]` | Show (or apply) the Pi-hole reservation diff now |
+| `sync [--apply]` | Show (or apply) the reservation diff of the DHCP provider now (generic) |
+| `sync-mode apply\|dry-run` | Switch enforcement for any DHCP provider (refused without one taking reservations); records a `sync.mode` event |
 | `preflight` | Check that the DHCP cutover can start; non-zero exit while something blocks |
 | `backup` | Save a Pi-hole Teleporter export and a Janus data dump to `janus/backups/<timestamp>/` |
 | `cutover --pihole-password-env VAR` | Enable Pi-hole DHCP with the quarantine pool and switch Janus to `apply` |
-| `rollback --pihole-password-env VAR` | Turn Pi-hole DHCP off and switch Janus back to `dry-run` |
+| `rollback --pihole-password-env VAR` | Turn Pi-hole DHCP off (removing the guest range first) and switch Janus back to `dry-run`. If the guest range cannot be removed, DHCP is still turned off and Janus still goes to `dry-run`, but the command fails and leaves `app_sudo` on: run it again or remove the `dhcp-range=tag:guest,...` line in Pi-hole |
+
+When the current DHCP provider can serve DHCP itself (Pi-hole), changing the DHCP provider in Settings (or `PUT /api/providers/dhcp`) first asks that box whether its DHCP server is on (Pi-hole: `dhcp.active`), whatever the sync mode: switching to `dry-run` never turns Pi-hole DHCP off. While it is on, the change is refused with 409 "Pi-hole is still serving DHCP: run janus rollback first"; when the box cannot be reached the change is refused too (409 "cannot verify that Pi-hole stopped serving DHCP ..."). Roll back (or turn its DHCP off) first, so the LAN never has two DHCP servers, then switch. With Pi-hole DHCP off (before `cutover`, or after `rollback`) the switch goes through, also in `apply`. The worker also remembers which box holds DHCP (provider kind and URL, setting `dhcp.identity`): when it changes, including through env variables, Janus drops back to `dry-run` (a `sync.mode` event with actor `system`) until an admin switches to `apply` again.
+
+`preflight`, `backup`, `cutover` and `rollback` are registered by the Pi-hole provider through its `cli` hook; usage is unchanged. `cutover` refuses when the DHCP role belongs to another provider. The same preflight is served at `GET /api/providers/pihole/preflight` (it replaces `/api/cutover`), and its informational `guest_rules` check does not block.
 
 ## Metrics
 
@@ -50,13 +55,31 @@ The worker serves Prometheus metrics on `janus-worker:9108/metrics` (network `me
 | `janus_devices_health{health}` | gauge (`ok`, `warning`, `critical`) |
 | `janus_last_sweep_timestamp_seconds` | gauge |
 | `janus_last_port_scan_timestamp_seconds` | gauge |
-| `janus_pihole_up`, `janus_sentinel_up`, `janus_maintenance_active` | gauge |
+| `janus_provider_up{role}` (`dhcp`, `dns`), `janus_sentinel_up`, `janus_maintenance_active` | gauge |
 | `janus_sync_mode_info{mode}` | gauge |
 | `janus_events_total{type}` | counter |
 
+`janus_pihole_up` was replaced by `janus_provider_up{role}`: update dashboards and alerts. `infra.down` / `infra.up` events now carry `service` = `dhcp` or `dns` (was `pihole`) plus a `provider` field.
+
+## Backups
+
+A `pg_dump` of the whole `janus` database is enough, but it must include **both** schemas: `public` (Janus data, Alembic) and `auth` (better-auth users, password hashes, sessions). A dump restricted with `-n public` loses every user. `janus backup` covers the Pi-hole side and Janus data; the job that backs up PostgreSQL must keep the `auth` schema. Keep at least one local admin (via `/setup` or `JANUS_ADMIN_USERNAME`/`JANUS_ADMIN_PASSWORD`) so a broken identity provider never locks you out.
+
+## Upgrading to the provider/better-auth release
+
+- **`JANUS_PIHOLE_URL` has no default any more.** Compose still passes it; outside compose set it (or save the URL in Settings). Migration `0008` moves the stored Pi-hole URL and written-MAC markers into the provider settings; migration `0009` adds the guest access value and columns.
+- **Authentik callback.** better-auth serves it at `/api/auth/callback/authentik`, the path NextAuth used; verify the redirect URI in Authentik (Applications > Providers > janus) before deploying. After the first deploy check that "Sign in with Authentik" completes.
+- **Database privileges.** better-auth creates its tables in a separate `auth` schema at start-up, so the `janus` database role needs `CREATE` on the database (`GRANT CREATE ON DATABASE janus TO janus;`) unless it owns it. Without it the start-up migration (`migrate-auth.mjs`) fails and nobody can sign in.
+- **Sessions and the first admin.** Everybody signs in again once (new session store). The first start creates the `auth` schema and there is no user yet, so every page (`/login` included) leads to `/setup`. There you either create a local admin, or press "Sign in with Authentik" (shown next to the form for every configured OIDC provider): while no user exists, the first allowlisted OIDC account to sign in becomes admin (its source stays `oidc`). Alternatively set `JANUS_ADMIN_USERNAME`/`JANUS_ADMIN_PASSWORD` before the first start to create the local admin automatically. Later allowlisted Authentik users are created as plain users on their first OIDC login.
+- **Secret key.** Production has no `JANUS_SECRET_KEY`, so stored secrets are encrypted with `JANUS_INTERNAL_TOKEN`. Rotating the token (or the key) orphans them: they read back as unset and must be re-entered. Set `JANUS_SECRET_KEY` before saving secrets to decouple the two.
+- **DNS probe target.** The sentinel probes the host of the DNS provider (the Pi-hole URL by default) instead of falling back to `127.0.0.1`; compose now passes the provider env (`JANUS_PIHOLE_*`, `JANUS_DHCP_PROVIDER`, `JANUS_DNS_PROVIDER`, `JANUS_UNIFI_*`, `JANUS_INTERNAL_TOKEN`, `JANUS_SECRET_KEY`) to `janus-sentinel` too. Without it the sentinel sees no DNS provider and the probe is off.
+- **Metrics and events.** Rename `janus_pihole_up` in dashboards and alerts; `infra.*` events use `service` = `dhcp`/`dns`.
+- **E-mail.** `JANUS_SMTP_HOST` has no default; compose passes `SMTP_HOST`, so make sure it is in `.env`. Use `JANUS_SMTP_SECURITY` (and the port) for STARTTLS.
+- Compose no longer passes `AUTH_TRUST_HOST`; `AUTH_AUTHENTIK_*` and `JANUS_ALLOWED_EMAILS` are optional and read by the backend.
+
 ## Notifications
 
-Events are written to the `events` table and dispatched every 15 s. Defaults (editable per event in **Notifications**):
+Events are written to the `events` table and dispatched every 15 s, through the channels configured in Settings > Integrations (Gotify and/or e-mail; with none ready the notification pages are hidden). Defaults (editable per event in **Notifications**):
 
 | Event | Default |
 |---|---|
@@ -69,6 +92,7 @@ Events are written to the `events` table and dispatched every 15 s. Defaults (ed
 | `device.offline` | Gotify priority 5, muted during maintenance |
 | `device.private_mac` | Gotify priority 5 |
 | `device.ip_mismatch` | e-mail only |
+| `guest.added`, `guest.expired`, `guest.removed` | off (enable in Notifications rules) |
 
 Quiet hours defer non-urgent messages; Redis debouncing collapses bursts of the same alert.
 

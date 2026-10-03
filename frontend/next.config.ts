@@ -10,6 +10,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Kept out of the bundle so the standalone output carries better-auth in
+  // node_modules for scripts/migrate-auth.mjs (pg is external by default).
+  serverExternalPackages: ["better-auth"],
   poweredByHeader: false,
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

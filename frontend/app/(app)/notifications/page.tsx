@@ -1,16 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { RulesTable } from "@/app/(app)/notifications/rules-table";
 import { Button, Card, Checkbox, Field, Notice, PageHeader, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import { useSettings } from "@/lib/settings-context";
 import type { NotifySettings, Rule } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
 
 export default function NotificationsPage() {
   const { settings: app } = useSettings();
+  const { features } = useFeatures();
+  const channels = (["email", "gotify"] as const).filter((c) => features?.notify?.[c]);
   const res = useResource<{ settings: NotifySettings; rules: Rule[] }>("/notifications");
   const [draft, setDraft] = useState<NotifySettings>();
   const saved = useRef<NotifySettings>(undefined);
@@ -23,6 +27,16 @@ export default function NotificationsPage() {
     }
   }, [res.data]);
 
+  if (!features) return <p className="text-muted">Loading…</p>;
+  if (channels.length === 0)
+    return (
+      <Notice tone="error">
+        No notification channel is configured. Add Gotify or e-mail in Settings → Integrations.{" "}
+        <Link href="/settings#integrations" className="underline">
+          Open Settings
+        </Link>
+      </Notice>
+    );
   if (res.error) return <Notice tone="error">{res.error}</Notice>;
   if (!res.data || !draft) return <p className="text-muted">Loading…</p>;
 
@@ -79,46 +93,50 @@ export default function NotificationsPage() {
       />
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
       <div className="grid gap-5 lg:grid-cols-2">
-        <Card className="flex flex-col gap-[18px] px-6 py-[22px]">
-          <div className="flex items-center justify-between gap-3">
-            <span className="flex flex-col gap-1">
-              <span className="font-display text-[19px] font-bold">Email</span>
-              <span className="text-[13px] text-muted">via Stalwart{app.channels.email_sender ? ` · ${app.channels.email_sender}` : ""}</span>
-            </span>
-            <Checkbox aria-label="Enable Email" checked={draft.email_enabled} onChange={(e) => toggle("email_enabled", e.target.checked)} />
-          </div>
-          <Field label="Recipient">
-            <input
-              className={inputClass}
-              type="email"
-              value={draft.email_recipient}
-              onChange={(e) => edit("email_recipient", e.target.value)}
-              onBlur={commit}
-              onKeyDown={(e) => e.key === "Enter" && commit()}
-            />
-          </Field>
-          <div className="flex justify-end">
-            <Button onClick={() => void test("email")}>Send test</Button>
-          </div>
-        </Card>
-        <Card className="flex flex-col gap-[18px] px-6 py-[22px]">
-          <div className="flex items-center justify-between gap-3">
-            <span className="flex flex-col gap-1">
-              <span className="font-display text-[19px] font-bold">Gotify</span>
-              <span className="text-[13px] text-muted">push to your phone</span>
-            </span>
-            <Checkbox aria-label="Enable Gotify" checked={draft.gotify_enabled} onChange={(e) => toggle("gotify_enabled", e.target.checked)} />
-          </div>
-          <Field label="Server" hint="Priority: set per event below (0 silent · 4 normal · 8 high · 10 max).">
-            <input className={`${inputClass} font-mono text-text2`} value={app.channels.gotify_url || "not configured"} readOnly />
-          </Field>
-          <div className="flex justify-end">
-            <Button onClick={() => void test("gotify")}>Send test</Button>
-          </div>
-        </Card>
+        {channels.includes("email") && (
+          <Card className="flex flex-col gap-[18px] px-6 py-[22px]">
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex flex-col gap-1">
+                <span className="font-display text-[19px] font-bold">Email</span>
+                <span className="text-[13px] text-muted">via Stalwart{app.channels.email_sender ? ` · ${app.channels.email_sender}` : ""}</span>
+              </span>
+              <Checkbox aria-label="Enable Email" checked={draft.email_enabled} onChange={(e) => toggle("email_enabled", e.target.checked)} />
+            </div>
+            <Field label="Recipient">
+              <input
+                className={inputClass}
+                type="email"
+                value={draft.email_recipient}
+                onChange={(e) => edit("email_recipient", e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => e.key === "Enter" && commit()}
+              />
+            </Field>
+            <div className="flex justify-end">
+              <Button onClick={() => void test("email")}>Send test</Button>
+            </div>
+          </Card>
+        )}
+        {channels.includes("gotify") && (
+          <Card className="flex flex-col gap-[18px] px-6 py-[22px]">
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex flex-col gap-1">
+                <span className="font-display text-[19px] font-bold">Gotify</span>
+                <span className="text-[13px] text-muted">push to your phone</span>
+              </span>
+              <Checkbox aria-label="Enable Gotify" checked={draft.gotify_enabled} onChange={(e) => toggle("gotify_enabled", e.target.checked)} />
+            </div>
+            <Field label="Server" hint="Priority: set per event below (0 silent · 4 normal · 8 high · 10 max).">
+              <input className={`${inputClass} font-mono text-text2`} value={app.channels.gotify_url || "not configured"} readOnly />
+            </Field>
+            <div className="flex justify-end">
+              <Button onClick={() => void test("gotify")}>Send test</Button>
+            </div>
+          </Card>
+        )}
       </div>
       <Card className="mt-5 px-6 py-5">
-        <RulesTable rules={res.data.rules} onChange={(rule) => void changeRule(rule)} />
+        <RulesTable rules={res.data.rules} channels={[...channels]} onChange={(rule) => void changeRule(rule)} />
       </Card>
       <Card className="mt-5 flex flex-wrap items-center justify-between gap-4 px-6 py-5">
         <span className="flex flex-col gap-1">

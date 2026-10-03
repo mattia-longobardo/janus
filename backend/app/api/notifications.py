@@ -2,13 +2,15 @@ from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.events import record_event
 from app.models import NotificationRule
 from app.notify.catalog import CATALOG, CHANNELS
+from app.notify.config import EMAIL as EMAIL_STORE
+from app.notify.config import GOTIFY, channel_ready
 from app.notify.store import (
     MAX_PRIORITY,
     MIN_PRIORITY,
@@ -20,10 +22,13 @@ from app.notify.store import (
     save_notify_settings,
     save_priorities,
 )
+from app.settingsstore import SettingsError
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 HHMM = r"^([01]\d|2[0-3]):[0-5]\d$"
 EMAIL = r"^$|^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+STORES = {"gotify": GOTIFY, "email": EMAIL_STORE}
 
 
 class SettingsIn(BaseModel):
@@ -42,6 +47,18 @@ class RuleIn(BaseModel):
     priority: int | None = Field(default=None, ge=MIN_PRIORITY, le=MAX_PRIORITY, strict=True)
 
 
+class ChannelsPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    gotify: dict[str, Any] | None = None
+    email: dict[str, Any] | None = None
+
+
+def _channels(db: Session) -> dict[str, Any]:
+    ready = channel_ready(db)
+    return {name: {"values": store.view(db), "source": store.sources(db), "ready": ready[name]}
+            for name, store in STORES.items()}
+
+
 def _rules(db: Session) -> list[dict[str, Any]]:
     stored = load_rules(db)
     priorities = load_priorities(db)
@@ -57,6 +74,27 @@ def _rules(db: Session) -> list[dict[str, Any]]:
 @router.get("")
 def get_notifications(db: Session = Depends(get_db)) -> dict[str, Any]:
     return {"settings": asdict(load_notify_settings(db)), "rules": _rules(db)}
+
+
+@router.get("/channels")
+def get_channels(db: Session = Depends(get_db)) -> dict[str, Any]:
+    return _channels(db)
+
+
+@router.put("/channels")
+def put_channels(body: ChannelsPatch, db: Session = Depends(get_db)) -> dict[str, Any]:
+    changed: dict[str, list[str]] = {}
+    try:
+        for name, patch in body.model_dump(exclude_none=True).items():
+            STORES[name].update(db, patch)
+            changed[name] = sorted(patch)
+    except SettingsError as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    if changed:
+        record_event(db, "settings.channels", None, {"changed": changed})
+    db.commit()
+    return _channels(db)
 
 
 @router.put("/settings")
@@ -90,6 +128,8 @@ def put_rules(body: list[RuleIn], db: Session = Depends(get_db)) -> list[dict[st
 def test_channel(channel: str, db: Session = Depends(get_db)) -> dict[str, bool]:
     if channel not in CHANNELS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown channel")
+    if not channel_ready(db)[channel]:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{channel} is not configured")
     record_event(db, "notify.test", None, {"channel": channel})
     db.commit()
     return {"queued": True}

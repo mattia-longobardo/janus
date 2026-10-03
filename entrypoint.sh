@@ -3,6 +3,7 @@ set -e
 case "${1:-api}" in
   api)
     trap 'exit 143' TERM INT
+    node /app/frontend/scripts/migrate-auth.mjs
     alembic upgrade head
     uvicorn app.main:app --host 127.0.0.1 --port 8000 &
     backend=$!

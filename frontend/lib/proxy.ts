@@ -25,6 +25,17 @@ export async function forward(req: Request, path: string[], options: ForwardOpti
   }
   const url = new URL(`/api/${path.map(encodeURIComponent).join("/")}`, options.backend);
   url.search = new URL(req.url).search;
+  // Judge the RESOLVED path (dot segments, duplicate slashes, encoded separators), never the raw input.
+  let first: string;
+  try {
+    const rawFirst = decodeURIComponent(path[0] ?? "").split("/")[0];
+    const resolved = decodeURIComponent(url.pathname).replace(/^\/api\/+/i, "").split("/")[0];
+    first = [rawFirst, resolved].map((v) => v.toLowerCase()).includes("internal") ? "internal" : "";
+  } catch {
+    return Response.json({ detail: "bad request" }, { status: 400 });
+  }
+  // Dot segments ("..") resolve before the request leaves: never let one climb out of /api/.
+  if (first === "internal" || !url.pathname.startsWith("/api/")) return Response.json({ detail: "not found" }, { status: 404 });
   let body: ArrayBuffer | undefined;
   if (WRITES.has(req.method)) {
     body = await req.arrayBuffer();

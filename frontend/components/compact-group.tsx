@@ -87,7 +87,7 @@ export function CompactGroup({ group, onDone, onError }: { group: Group; onDone:
         </p>
       )}
       {preview.moves.length > 0 && (
-        <p className="text-xs text-muted">Pi-hole gets the new reservations at once; each device switches at its next DHCP renewal or restart.</p>
+        <p className="text-xs text-muted">The DHCP provider gets the new reservations at once; each device switches at its next DHCP renewal or restart.</p>
       )}
       <div className="flex justify-end gap-2">
         <Button onClick={() => setPreview(undefined)} disabled={busy}>

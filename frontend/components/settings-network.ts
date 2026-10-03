@@ -7,12 +7,13 @@ export const NETWORK_FIELDS: NetworkField[] = [
   "subnet",
   "gateway",
   "sentinel_interface",
-  "pihole_url",
   "sweep_interval_s",
   "scan_window_start",
   "scan_window_end",
   "quarantine_start",
   "quarantine_end",
+  "guest_start",
+  "guest_end",
 ];
 
 export function toDraft(settings: AppSettings): NetDraft {
@@ -22,7 +23,8 @@ export function toDraft(settings: AppSettings): NetDraft {
     gateway: n.gateway,
     quarantine_start: n.quarantine_start,
     quarantine_end: n.quarantine_end,
-    pihole_url: n.pihole_url,
+    guest_start: n.guest_start,
+    guest_end: n.guest_end,
     sentinel_interface: n.sentinel_interface,
     sweep_interval_s: String(n.sweep_interval_s),
     scan_window_start: settings.scan_window.start,
@@ -30,14 +32,10 @@ export function toDraft(settings: AppSettings): NetDraft {
   };
 }
 
-export function networkPatch(draft: NetDraft, settings: AppSettings, resets: Set<NetworkField>): NetPatch {
+export function networkPatch(draft: NetDraft, settings: AppSettings): NetPatch {
   const current = toDraft(settings);
   const patch: NetPatch = {};
   for (const field of NETWORK_FIELDS) {
-    if (resets.has(field)) {
-      patch[field] = null;
-      continue;
-    }
     const value = draft[field].trim();
     if (value === current[field]) continue;
     patch[field] = field === "sweep_interval_s" ? Number(value) : value;

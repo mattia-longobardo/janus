@@ -1,21 +1,17 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { signIn } from "@/auth";
+import { LoginForm } from "@/app/login/login-form";
+import { fetchAuthConfig } from "@/lib/auth/config";
+import { getHasUsers } from "@/lib/auth/server";
 
 export const metadata: Metadata = { title: "Sign in" };
 
-function safeTarget(url: string | undefined): string {
-  return url && url.startsWith("/") && !url.startsWith("//") ? url : "/";
-}
-
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ callbackUrl?: string; error?: string }> }) {
   const { callbackUrl, error } = await searchParams;
-  const target = safeTarget(callbackUrl);
-
-  async function login() {
-    "use server";
-    await signIn("authentik", { redirectTo: target });
-  }
+  if (!(await getHasUsers())) redirect("/setup");
+  // Offline, fetchAuthConfig yields no providers: the password form always works.
+  const providers = (await fetchAuthConfig()).providers.map(({ id, name }) => ({ id, name }));
 
   return (
     <main className="flex min-h-dvh items-center justify-center px-4">
@@ -28,19 +24,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           </svg>
           <h1 className="font-display text-3xl font-bold tracking-tight">Janus</h1>
         </div>
-        <p className="text-sm text-muted">Home network control. Sign in with your Authentik account.</p>
-        {error && (
-          <p role="alert" className="rounded-lg border border-bad px-3 py-2 text-sm text-bad">
-            {error === "AccessDenied"
-              ? "This account is not allowed to use Janus."
-              : "Sign-in is not available right now. Check the Authentik application for Janus and try again."}
-          </p>
-        )}
-        <form action={login}>
-          <button type="submit" className="h-12 w-full rounded-lg border border-accent bg-accent text-sm font-semibold text-accent-ink">
-            Sign in with Authentik
-          </button>
-        </form>
+        <p className="text-sm text-muted">Home network control. Sign in to continue.</p>
+        <LoginForm providers={providers} error={error} callbackUrl={callbackUrl} />
       </div>
     </main>
   );

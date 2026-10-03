@@ -2,10 +2,20 @@ import uuid
 
 import pytest
 
-from app.api.approval import get_pihole_factory
 from app.config import settings
 from app.models import Access, Device, Group
+from app.providers.base import Policy
+from app.providers.pihole import SPEC
+from app.providers.pihole.provider import PiholeConfig, PiholeProvider
 from tests.fakes import FakePihole
+from tests.fakes_provider import FakeStore, app_override_dhcp
+
+CFG = PiholeConfig(url="http://192.168.1.220:1000", password="pw", lease="24h")
+
+
+@pytest.fixture(autouse=True)
+def _dry_run(monkeypatch):
+    monkeypatch.setattr(settings, "sync_mode", "dry-run")
 
 
 @pytest.fixture
@@ -27,7 +37,17 @@ def pending(db):
 
 
 def _use(client, fake):
-    client.app.dependency_overrides[get_pihole_factory] = lambda: (lambda: fake)
+    app_override_dhcp(client, ("pihole", SPEC.policies, lambda: PiholeProvider(fake, CFG)))
+
+
+def seed_pending(db):
+    group = Group(name="Meters", color="#A6D86A", icon="device", range_start="192.168.1.120",
+                  range_end="192.168.1.129", default_access=Access.authorized)
+    device = Device(mac="00:00:5E:00:53:41", name="plug", hostname="plug", access=Access.pending,
+                    last_ip="192.168.1.244")
+    db.add_all([group, device])
+    db.flush()
+    return device, group
 
 
 def test_approve_endpoint_dry_run(client, people, pending):
@@ -78,3 +98,48 @@ def test_approve_validation_errors(client, people, pending):
     assert bad_ip.status_code == 422 and "outside the group range" in bad_ip.json()["detail"]
     missing = client.post(f"/api/devices/{uuid.uuid4()}/approve", json={"name": "X", "group_id": people.id})
     assert missing.status_code == 404
+
+
+def test_approve_with_unsupported_policy_is_409(client, db, monkeypatch):
+    # fake DHCP provider that only supports FULL
+    app_override_dhcp(client, ("demo", frozenset({Policy.FULL}), lambda: FakeStore()))
+    device, group = seed_pending(db)
+    r = client.post(f"/api/devices/{device.id}/approve", json={"name": "Plug", "group_id": group.id, "access": "lan_only"})
+    assert r.status_code == 409 and "lan_only" in r.json()["detail"]
+    db.refresh(device)
+    assert device.access is Access.pending
+
+
+def test_approve_without_provider_reports_no_provider(client, db):
+    app_override_dhcp(client, None)
+    device, group = seed_pending(db)
+    r = client.post(f"/api/devices/{device.id}/approve", json={"name": "Laptop", "group_id": group.id})
+    assert r.status_code == 200 and r.json()["enforcement"] == "no provider"
+
+
+def test_block_without_provider_reports_no_provider(client, db, monkeypatch):
+    monkeypatch.setattr(settings, "sync_mode", "apply")
+    app_override_dhcp(client, None)
+    device, _ = seed_pending(db)
+    r = client.post(f"/api/devices/{device.id}/block")
+    assert r.status_code == 200 and r.json()["enforcement"] == "no provider"
+
+
+def test_block_apply_asks_the_provider_to_renew_and_leaves_no_reservation(client, db, monkeypatch):
+    monkeypatch.setattr(settings, "sync_mode", "apply")
+    store = FakeStore()
+    app_override_dhcp(client, ("demo", frozenset({Policy.FULL, Policy.LAN_ONLY}), lambda: store))
+    device, _ = seed_pending(db)
+    assert client.post(f"/api/devices/{device.id}/block").json()["enforcement"] == "applied"
+    assert store.writes == [("renew", "00:00:5E:00:53:41")]
+
+
+def test_block_apply_revokes_the_lease_of_a_device_without_mac(client, db, monkeypatch):
+    monkeypatch.setattr(settings, "sync_mode", "apply")
+    device = Device(mac=None, name="ghost", hostname="ghost", access=Access.pending, last_ip="192.168.1.245")
+    db.add(device)
+    db.flush()
+    fake = FakePihole()
+    _use(client, fake)
+    assert client.post(f"/api/devices/{device.id}/block").json()["enforcement"] == "applied"
+    assert fake.writes == [("revoke", "192.168.1.245")]

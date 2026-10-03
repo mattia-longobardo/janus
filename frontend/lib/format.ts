@@ -30,6 +30,7 @@ export const ACCESS_LABELS: Record<Access, string> = {
   lan_only: "LAN only",
   pending: "Pending",
   blocked: "Blocked",
+  guest: "Guest",
 };
 
 export function ipSortKey(ip: string | null | undefined): number {

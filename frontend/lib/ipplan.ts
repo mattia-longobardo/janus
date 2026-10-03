@@ -31,3 +31,20 @@ export function rangeUsage(group: Group, devices: Device[]): { used: number; tot
   const used = devices.filter((d) => d.static_ip && lastOctet(d.static_ip) >= start && lastOctet(d.static_ip) <= end).length;
   return { used, total: end - start + 1 };
 }
+
+export type Pool = { start: string; end: string };
+
+// The guest pool is optional: an empty start or end means there is none.
+export function guestPool(network: { guest_start: string; guest_end: string }): Pool | null {
+  return network.guest_start && network.guest_end ? { start: network.guest_start, end: network.guest_end } : null;
+}
+
+export function inPool(octet: number, pool: Pool | null): boolean {
+  return pool !== null && lastOctet(pool.start) <= octet && octet <= lastOctet(pool.end);
+}
+
+// Guests have no reservation: what counts is the address they currently lease.
+export function poolUsage(pool: Pool, guests: Device[]): { used: number; total: number } {
+  const used = guests.filter((g) => g.last_ip && inPool(lastOctet(g.last_ip), pool)).length;
+  return { used, total: lastOctet(pool.end) - lastOctet(pool.start) + 1 };
+}

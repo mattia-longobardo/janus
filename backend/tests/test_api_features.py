@@ -1,0 +1,85 @@
+from app import features
+from app.config import settings
+from app.providers import config as pc
+from app.providers import registry
+from app.providers.base import Role
+from tests.fakes import fake_pihole
+from tests.providers import fixture_pkg
+
+
+def test_features_collects_every_registered_provider(client, monkeypatch):
+    monkeypatch.setattr(features, "FEATURE_PROVIDERS", {
+        "notify": lambda db: {"email": True, "gotify": False},
+        "guests": lambda db: {"enabled": False},
+    })
+    assert client.get("/api/features").json() == {
+        "notify": {"email": True, "gotify": False},
+        "guests": {"enabled": False},
+    }
+
+
+def test_a_broken_provider_does_not_hide_the_others(client, monkeypatch):
+    def boom(db):
+        raise RuntimeError("down")
+    monkeypatch.setattr(features, "FEATURE_PROVIDERS", {"notify": boom, "guests": lambda db: {"enabled": True}})
+    assert client.get("/api/features").json() == {"notify": {}, "guests": {"enabled": True}}
+
+
+def test_features_require_the_internal_token(client):
+    assert client.get("/api/features", headers={"X-Janus-Internal-Token": "wrong"}).status_code == 401
+
+
+def test_guests_feature_on_with_pihole(client, monkeypatch):
+    monkeypatch.setattr(settings, "pihole_password", "pw")
+    monkeypatch.setattr(settings, "dhcp_provider", "")
+    assert client.get("/api/features").json()["guests"]["enabled"] is True
+
+
+def test_guests_feature_off_with_provider_without_guest_policy(client, db):
+    with registry.override({"demo": registry.discover(fixture_pkg)["demo"]}), fake_pihole():   # demo: only Policy.FULL
+        pc.save_role(db, Role.DHCP, "demo", {})
+        assert client.get("/api/features").json()["guests"]["enabled"] is False
+
+
+def test_guests_feature_on_without_any_provider(client, db):
+    with fake_pihole():
+        pc.save_role(db, Role.DHCP, None, None)
+    assert client.get("/api/features").json()["guests"] == {"enabled": True, "pool": False, "color": "#4FC3D9", "icon": "guest"}
+
+
+def test_guests_feature_carries_the_configured_look(client, db):
+    with fake_pihole():
+        pc.save_role(db, Role.DHCP, None, None)
+    client.put("/api/guests/settings", json={"color": "#E58FB8", "icon": "phone"})
+    guests = client.get("/api/features").json()["guests"]
+    assert (guests["color"], guests["icon"]) == ("#E58FB8", "phone")
+
+
+def test_a_failing_provider_rolls_the_session_back_before_the_next(monkeypatch):
+    calls = []
+
+    class Session:
+        def rollback(self):
+            calls.append("rollback")
+
+    def boom(db):
+        calls.append("boom")
+        raise RuntimeError("query failed: transaction aborted")
+
+    def next_one(db):
+        calls.append("next")
+        return {"ok": True}
+
+    monkeypatch.setattr(features, "FEATURE_PROVIDERS", {"notify": boom, "guests": next_one})
+    assert features.collect(Session()) == {"notify": {}, "guests": {"ok": True}}
+    assert calls == ["boom", "rollback", "next"]
+
+
+def test_guests_feature_falls_back_to_the_default_look_for_bad_stored_values(client, db):
+    from app.models import Setting
+    with fake_pihole():
+        pc.save_role(db, Role.DHCP, None, None)
+    db.merge(Setting(key="guests.settings", value={"color": "red", "icon": ""}))
+    db.commit()
+    guests = client.get("/api/features").json()["guests"]
+    assert (guests["color"], guests["icon"]) == ("#4FC3D9", "guest")

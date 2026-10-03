@@ -76,8 +76,8 @@ def list_devices(group_id: int | None = None, access: Access | None = None,
     query = select(Device)
     if group_id is not None:
         query = query.where(Device.group_id == group_id)
-    if access is not None:
-        query = query.where(Device.access == access)
+    # Guests have their own page and counter: only an explicit ?access=guest lists them.
+    query = query.where(Device.access == access) if access is not None else query.where(Device.access != Access.guest)
     devices = list(db.scalars(query))
     ordered = sorted(devices, key=lambda d: (d.static_ip is None, IPv4Address(d.static_ip or "0.0.0.0"), d.name))
     return annotate(db, ordered)
@@ -125,6 +125,8 @@ def update_device(device_id: uuid.UUID, body: DevicePatch, db: Session = Depends
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
     new_access = fields.get("access")
+    if new_access is Access.guest:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "use /guest to make a device a guest")
     if new_access in APPROVED and new_access is not device.access and (
         device.mac is None or group is None or new_ip is None
     ):

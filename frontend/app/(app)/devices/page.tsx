@@ -80,7 +80,7 @@ export default function DevicesPage() {
             <span className="sr-only">Access</span>
             <select className={inputClass} value={access} onChange={(e) => setAccess(e.target.value as Access | "all")}>
               <option value="all">Any access</option>
-              {(Object.keys(ACCESS_LABELS) as Access[]).map((key) => (
+              {(Object.keys(ACCESS_LABELS) as Access[]).filter((key) => key !== "guest").map((key) => (
                 <option key={key} value={key}>
                   {ACCESS_LABELS[key]}
                 </option>

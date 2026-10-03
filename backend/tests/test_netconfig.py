@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.intel.scanning import on_lan, pick_next
 from app.models import Access, Device, Event, Group, Setting
-from app.netconfig import NETWORK_KEY, env_defaults, load_netconfig, restart_needed
+from app.netconfig import NETWORK_KEY, NetConfigError, env_defaults, load_netconfig, restart_needed, update_netconfig
 
 NOW = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
@@ -24,20 +24,20 @@ def test_defaults_come_from_env_and_are_marked(client):
     body = client.get("/api/settings").json()
     assert body["network"]["subnet"] == "192.168.1.0/24"
     assert body["source"]["subnet"] == "env"
-    assert set(body["source"]) >= {"pihole_url", "sentinel_interface", "sweep_interval_s", "scan_window_start"}
+    assert set(body["source"]) >= {"sentinel_interface", "sweep_interval_s", "scan_window_start"}
+    assert "pihole_url" not in body["source"] and "pihole_url" not in body["network"]
 
 
 def test_override_is_applied_and_logged(client, db, people):
     response = client.put("/api/settings", json={"network": {
-        "pihole_url": "http://192.168.1.221:8080/", "sweep_interval_s": 120, "sentinel_interface": "eth1",
+        "sweep_interval_s": 120, "sentinel_interface": "eth1",
         "scan_window_start": "09:00", "quarantine_start": "192.168.1.230"}})
     assert response.status_code == 200
     body = response.json()
-    assert body["network"]["pihole_url"] == "http://192.168.1.221:8080"
     assert body["network"]["sweep_interval_s"] == 120
     assert body["network"]["quarantine_start"] == "192.168.1.230"
     assert body["scan_window"]["start"] == "09:00"
-    assert body["source"]["pihole_url"] == "custom"
+    assert body["source"]["sentinel_interface"] == "custom"
     assert body["source"]["subnet"] == "env"
     assert load_netconfig(db).sentinel_interface == "eth1"
     event = db.scalars(select(Event).where(Event.type == "settings.network")).one()
@@ -62,7 +62,6 @@ def test_setting_a_value_equal_to_the_default_is_not_stored_as_custom(client):
     ({"subnet": "not-a-network"}, "subnet"),
     ({"gateway": "10.0.0.1"}, "outside"),
     ({"quarantine_start": "192.168.1.250", "quarantine_end": "192.168.1.240"}, "start is after end"),
-    ({"pihole_url": "ftp://pihole"}, "http(s)"),
     ({"sentinel_interface": "eth0; rm -rf /"}, "sentinel_interface"),
     ({"sweep_interval_s": 5}, "between 10 and 3600"),
     ({"scan_window_end": "25:00"}, "HH:MM"),
@@ -122,7 +121,54 @@ def test_invalid_stored_overrides_fall_back_to_env(db):
 def test_restart_needed_only_for_fields_the_sentinel_binds():
     base = env_defaults()
     assert restart_needed(base, base) == []
-    assert restart_needed(base, replace(base, pihole_url="http://x", scan_window_start="09:00")) == []
+    assert restart_needed(base, replace(base, scan_window_end="21:00", scan_window_start="09:00")) == []
     assert restart_needed(base, replace(base, sentinel_interface="eth1", sweep_interval_s=30)) == [
         "sentinel_interface", "sweep_interval_s"]
     assert restart_needed(base, replace(base, quarantine_end="192.168.1.250")) == ["quarantine_end"]
+
+
+def test_saving_the_env_value_drops_the_override(db):
+    from app.netconfig import env_defaults, sources, update_netconfig
+
+    update_netconfig(db, {"sweep_interval_s": 120})
+    assert sources(db)["sweep_interval_s"] == "custom"
+    update_netconfig(db, {"sweep_interval_s": env_defaults().sweep_interval_s})
+    assert sources(db)["sweep_interval_s"] == "env"
+
+
+def test_pihole_url_is_no_longer_a_network_setting(client, db):
+    assert client.put("/api/settings", json={"network": {"pihole_url": "http://10.0.0.2"}}).status_code == 422
+    db.add(Setting(key=NETWORK_KEY, value={"pihole_url": "http://10.0.0.2", "sweep_interval_s": 120}))
+    db.flush()
+    assert load_netconfig(db).sweep_interval_s == 120   # a leftover pre-0008 key is ignored
+
+
+def test_guest_pool_must_be_complete_and_not_overlap(db):
+    with pytest.raises(NetConfigError, match="guest_end"):
+        update_netconfig(db, {"guest_start": "192.168.1.200"})
+    with pytest.raises(NetConfigError, match="guest_start"):
+        update_netconfig(db, {"guest_end": "192.168.1.200"})
+    with pytest.raises(NetConfigError, match="quarantine"):
+        update_netconfig(db, {"guest_start": "192.168.1.230", "guest_end": "192.168.1.245"})
+    with pytest.raises(NetConfigError, match="gateway"):
+        update_netconfig(db, {"guest_start": "192.168.1.1", "guest_end": "192.168.1.9"})
+    cfg, _ = update_netconfig(db, {"guest_start": "192.168.1.200", "guest_end": "192.168.1.229"})
+    assert cfg.guest_pool().size() == 30
+
+
+def test_guest_pool_overlapping_a_group_is_refused(db):
+    from app.models import Access, Group
+    db.add(Group(name="Kids", color="#fff", icon="device", range_start="192.168.1.195", range_end="192.168.1.205",
+                 default_access=Access.authorized))
+    db.flush()
+    with pytest.raises(NetConfigError, match="Kids"):
+        update_netconfig(db, {"guest_start": "192.168.1.200", "guest_end": "192.168.1.229"})
+
+
+def test_guest_pool_defaults_to_none_and_clearing_drops_the_override(db):
+    assert load_netconfig(db).guest_pool() is None
+    update_netconfig(db, {"guest_start": "192.168.1.200", "guest_end": "192.168.1.229"})
+    assert load_netconfig(db).guest_pool() is not None
+    update_netconfig(db, {"guest_start": "", "guest_end": ""})
+    assert load_netconfig(db).guest_pool() is None
+    assert db.get(Setting, NETWORK_KEY).value == {}

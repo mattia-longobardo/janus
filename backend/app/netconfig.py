@@ -4,7 +4,6 @@ from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass, fields, replace
 from ipaddress import AddressValueError, IPv4Address, IPv4Network, NetmaskValueError
 from typing import Any
-from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,14 +24,20 @@ class NetConfig:
     gateway: str
     quarantine_start: str
     quarantine_end: str
-    pihole_url: str
     sentinel_interface: str
     sweep_interval_s: int
     scan_window_start: str
     scan_window_end: str
+    guest_start: str = ""
+    guest_end: str = ""
 
     def plan(self) -> NetworkPlan:
         return NetworkPlan.from_settings(self)
+
+    def guest_pool(self) -> IpRange | None:
+        if not (self.guest_start and self.guest_end):
+            return None
+        return IpRange.parse(self.guest_start, self.guest_end)
 
 
 FIELDS = tuple(f.name for f in fields(NetConfig))
@@ -109,9 +114,7 @@ def validate(cfg: NetConfig, group_ranges: list[tuple[str, IpRange]]) -> NetConf
             raise NetConfigError(f"subnet: group {name} ({rng}) would fall outside {network}")
         if rng.overlaps(pool):
             raise NetConfigError(f"quarantine pool overlaps group {name} ({rng})")
-    url = urlparse(str(cfg.pihole_url).strip())
-    if url.scheme not in ("http", "https") or not url.netloc:
-        raise NetConfigError("pihole_url: use an http(s) URL such as http://192.168.1.220:1000")
+    guest = _validate_guest(cfg, network, gateway, pool, group_ranges)
     if not INTERFACE.match(str(cfg.sentinel_interface)):
         raise NetConfigError("sentinel_interface: letters, digits and . _ : - only (max 32)")
     try:
@@ -125,9 +128,37 @@ def validate(cfg: NetConfig, group_ranges: list[tuple[str, IpRange]]) -> NetConf
             raise NetConfigError(f"{label}: use HH:MM")
     return NetConfig(
         subnet=str(network), gateway=str(gateway), quarantine_start=str(q_start), quarantine_end=str(q_end),
-        pihole_url=str(cfg.pihole_url).strip().rstrip("/"), sentinel_interface=str(cfg.sentinel_interface),
+        guest_start=str(guest.start) if guest else "", guest_end=str(guest.end) if guest else "",
+        sentinel_interface=str(cfg.sentinel_interface),
         sweep_interval_s=sweep, scan_window_start=str(cfg.scan_window_start), scan_window_end=str(cfg.scan_window_end),
     )
+
+
+def _validate_guest(cfg: NetConfig, network: IPv4Network, gateway: IPv4Address, quarantine: IpRange,
+                    group_ranges: list[tuple[str, IpRange]]) -> IpRange | None:
+    start, end = str(cfg.guest_start).strip(), str(cfg.guest_end).strip()
+    if not start and not end:
+        return None
+    if not end:
+        raise NetConfigError("guest_end: set it together with guest_start, or clear both")
+    if not start:
+        raise NetConfigError("guest_start: set it together with guest_end, or clear both")
+    g_start, g_end = _address(start, "guest_start"), _address(end, "guest_end")
+    if g_start not in network:
+        raise NetConfigError(f"guest_start: {g_start} is outside {network}")
+    if g_end not in network:
+        raise NetConfigError(f"guest_end: {g_end} is outside {network}")
+    if g_start > g_end:
+        raise NetConfigError("guest_start: guest pool start is after end")
+    pool = IpRange(g_start, g_end)
+    if gateway in pool:
+        raise NetConfigError("guest_start: guest pool must not contain the gateway")
+    if pool.overlaps(quarantine):
+        raise NetConfigError(f"guest_start: guest pool overlaps the quarantine pool ({quarantine})")
+    for name, rng in group_ranges:
+        if pool.overlaps(rng):
+            raise NetConfigError(f"guest_start: guest pool overlaps group {name} ({rng})")
+    return pool
 
 
 def update_netconfig(db: Session, patch: Mapping[str, Any]) -> tuple[NetConfig, dict[str, list[Any]]]:

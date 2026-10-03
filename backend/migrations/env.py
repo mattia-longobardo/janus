@@ -10,7 +10,8 @@ target_metadata = Base.metadata
 
 
 def _run(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # per migration: 0009 commits mid-run (ALTER TYPE ... ADD VALUE), so each file owns its transaction
+    context.configure(connection=connection, target_metadata=target_metadata, transaction_per_migration=True)
     with context.begin_transaction():
         context.run_migrations()
 

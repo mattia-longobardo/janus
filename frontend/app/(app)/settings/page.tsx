@@ -4,51 +4,41 @@ import clsx from "clsx";
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { CutoverReadiness } from "@/components/cutover-readiness";
 import { type NetDraft, errorField, networkPatch, toDraft } from "@/components/settings-network";
 import { REPEATS, nextRun, zoneLabel } from "@/components/settings-schedule";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Button, Card, Checkbox, Field, Notice, PageHeader, inputClass } from "@/components/ui";
+import { Button, Checkbox, Field, Notice, PageHeader, SuffixInput, inputClass } from "@/components/ui";
 import { ApiError, api, errorText } from "@/lib/api";
 import { DAY_NAMES, describeDays, hasDay, toggleDay } from "@/lib/days";
+import { useFeatures } from "@/lib/features";
+import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { AppSettings, MaintenanceWindow, NetworkField } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
 
+import { EXTRA_SECTIONS } from "./sections";
+import { EnforcementSwitch } from "./sections/enforcement";
+import { SectionCard } from "./sections/section-card";
+
 const DURATIONS = [5, 10, 15, 30, 45, 60, 90, 120];
-const NET_LAYOUT: { field: NetworkField; label: string; type?: "text" | "time" | "number"; suffix?: string; wide?: boolean }[] = [
+const NET_LAYOUT: { field: NetworkField; label: string; type?: "text" | "time" | "number"; suffix?: string }[] = [
   { field: "subnet", label: "Subnet" },
   { field: "gateway", label: "Gateway" },
   { field: "sentinel_interface", label: "Interface" },
   { field: "sweep_interval_s", label: "ARP sweep every", type: "number", suffix: "s" },
-  { field: "pihole_url", label: "Pi-hole API", wide: true },
   { field: "quarantine_start", label: "Quarantine from" },
   { field: "quarantine_end", label: "Quarantine to" },
   { field: "scan_window_start", label: "Port scans from", type: "time" },
   { field: "scan_window_end", label: "Port scans until", type: "time" },
 ];
+const QUARANTINE_FIELDS: NetworkField[] = ["quarantine_start", "quarantine_end"];
 type General = Pick<AppSettings, "timezone" | "time_format">;
-
-function SectionCard({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <Card className="flex h-full flex-col gap-[18px] px-6 py-[22px]">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="font-display text-[19px] font-bold">{title}</h2>
-        {action}
-      </div>
-      {children}
-    </Card>
-  );
-}
 
 function NetInput({
   field,
   label,
   draft,
   onChange,
-  source,
-  reset,
-  onReset,
   error,
   type = "text",
   suffix,
@@ -57,9 +47,6 @@ function NetInput({
   label: string;
   draft: NetDraft;
   onChange: (field: NetworkField, value: string) => void;
-  source: "env" | "custom";
-  reset: boolean;
-  onReset: (field: NetworkField) => void;
   error?: string;
   type?: "text" | "time" | "number";
   suffix?: string;
@@ -67,36 +54,22 @@ function NetInput({
   const id = `net-${field}`;
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <label htmlFor={id} className="text-[13px] font-medium text-text2">
-          {label}
-        </label>
-        {reset ? (
-          <span className="text-[11px] text-accent-text">default on save</span>
-        ) : source === "custom" ? (
-          <button type="button" onClick={() => onReset(field)} className="text-[11px] text-ok hover:underline">
-            Reset
-          </button>
-        ) : (
-          <span className="text-[11px] text-faint">default</span>
-        )}
-      </div>
-      <div className="relative">
-        <input
-          id={id}
-          type={type}
-          min={type === "number" ? 10 : undefined}
-          max={type === "number" ? 3600 : undefined}
-          aria-invalid={Boolean(error)}
-          aria-describedby={error ? `${id}-error` : undefined}
-          className={clsx(`${inputClass} font-mono`, suffix && "pr-8", error && "border-bad", reset && "text-faint")}
-          value={draft[field]}
-          disabled={reset}
-          spellCheck={false}
-          onChange={(e) => onChange(field, e.target.value)}
-        />
-        {suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-sm text-faint">{suffix}</span>}
-      </div>
+      <label htmlFor={id} className="text-[13px] font-medium text-text2">
+        {label}
+      </label>
+      <SuffixInput
+        id={id}
+        type={type}
+        suffix={suffix}
+        min={type === "number" ? 10 : undefined}
+        max={type === "number" ? 3600 : undefined}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className={clsx("font-mono", error && "border-bad")}
+        value={draft[field]}
+        spellCheck={false}
+        onChange={(e) => onChange(field, e.target.value)}
+      />
       {error && (
         <span id={`${id}-error`} role="alert" className="text-xs text-bad">
           {error}
@@ -108,12 +81,12 @@ function NetInput({
 
 export default function SettingsPage() {
   const { settings, reload } = useSettings();
+  const { features } = useFeatures();
   const windowsRes = useResource<MaintenanceWindow[]>("/maintenance-windows");
   const [general, setGeneral] = useState<General>({ timezone: settings.timezone, time_format: settings.time_format });
   const [drafts, setDrafts] = useState<Record<number, MaintenanceWindow>>({});
   const [busy, setBusy] = useState(false);
   const [net, setNet] = useState<NetDraft>(() => toDraft(settings));
-  const [resets, setResets] = useState<Set<NetworkField>>(new Set());
   const [netError, setNetError] = useState<{ field: NetworkField; text: string }>();
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string }>();
   const zones = useMemo(() => {
@@ -124,10 +97,7 @@ export default function SettingsPage() {
   }, [settings.timezone]);
 
   useEffect(() => setGeneral({ timezone: settings.timezone, time_format: settings.time_format }), [settings.timezone, settings.time_format]);
-  useEffect(() => {
-    setNet(toDraft(settings));
-    setResets(new Set());
-  }, [settings]);
+  useEffect(() => setNet(toDraft(settings)), [settings]);
 
   const windows = (windowsRes.data ?? []).map((w) => drafts[w.id] ?? w);
   const dirtyWindows = windows.filter((w) => {
@@ -135,7 +105,7 @@ export default function SettingsPage() {
     return original && JSON.stringify(original) !== JSON.stringify(w);
   });
   const generalDirty = general.timezone !== settings.timezone || general.time_format !== settings.time_format;
-  const patch = networkPatch(net, settings, resets);
+  const patch = networkPatch(net, settings);
   const networkDirty = Object.keys(patch).length > 0;
   const dirty = generalDirty || networkDirty || dirtyWindows.length > 0;
 
@@ -198,13 +168,12 @@ export default function SettingsPage() {
     if (netError?.field === field) setNetError(undefined);
   }
 
-  function resetNet(field: NetworkField) {
-    setResets((r) => new Set(r).add(field));
-    if (netError?.field === field) setNetError(undefined);
-  }
-
   const applying = settings.sync_mode === "apply";
   const q = settings.network;
+  const dhcp = features?.providers?.dhcp;
+  // The quarantine pool only exists with a DHCP provider that has one; hidden fields keep their stored values.
+  const quarantinePool = hasCapability(features, "dhcp", "quarantine");
+  const netLayout = NET_LAYOUT.filter((f) => quarantinePool || !QUARANTINE_FIELDS.includes(f.field));
 
   return (
     <>
@@ -252,8 +221,8 @@ export default function SettingsPage() {
         <div className="min-w-0">
           <SectionCard title="Network">
             <div className="grid gap-3.5 sm:grid-cols-2">
-              {NET_LAYOUT.map(({ field, label, type, suffix, wide }) => (
-                <div key={field} className={wide ? "sm:col-span-2" : undefined}>
+              {netLayout.map(({ field, label, type, suffix }) => (
+                <div key={field}>
                   <NetInput
                     field={field}
                     label={label}
@@ -261,16 +230,13 @@ export default function SettingsPage() {
                     suffix={suffix}
                     draft={net}
                     onChange={changeNet}
-                    source={settings.source?.[field] ?? "env"}
-                    reset={resets.has(field)}
-                    onReset={resetNet}
                     error={netError?.field === field ? netError.text : undefined}
                   />
                 </div>
               ))}
             </div>
             <span className="mt-auto text-xs text-faint">
-              Changing interface, subnet or sweep interval restarts the scanner (a few seconds). The Pi-hole password stays in the server configuration.
+              Changing interface, subnet or sweep interval restarts the scanner (a few seconds).
             </span>
           </SectionCard>
         </div>
@@ -299,25 +265,40 @@ export default function SettingsPage() {
         <div className="min-w-0">
           <SectionCard title="Access control">
             <div className="flex flex-col">
-              <StatusRow
-                title="Quarantine unknown devices"
-                detail={
-                  applying
-                    ? `Pool .${q.quarantine_start.split(".")[3]}–.${q.quarantine_end.split(".")[3]} · no gateway`
-                    : "dry-run — enforced after the Pi-hole DHCP cutover"
-                }
-                on={applying}
-              />
+              {quarantinePool && (
+                <StatusRow
+                  title="Quarantine unknown devices"
+                  detail={
+                    applying
+                      ? `Pool .${q.quarantine_start.split(".")[3]}–.${q.quarantine_end.split(".")[3]} · no gateway`
+                      : "dry-run — enforced after the DHCP cutover"
+                  }
+                  on={applying}
+                />
+              )}
               <StatusRow title="ARP isolation" detail="Planned · also cuts off devices that set a manual static IP" on={false} />
               <StatusRow
-                title="Pi-hole sync"
-                detail={applying ? "apply — Janus writes reservations to Pi-hole" : "dry-run — Janus only compares with Pi-hole"}
-                on={applying}
+                title="Enforcement"
+                detail={
+                  !dhcp
+                    ? "no network provider — Janus only records approvals"
+                    : applying
+                      ? `apply — Janus writes reservations to ${dhcp.label}`
+                      : `dry-run — Janus only compares with ${dhcp.label}`
+                }
+                on={applying && Boolean(dhcp)}
               />
-              <CutoverReadiness />
+              <EnforcementSwitch mode={settings.sync_mode} hasDhcp={hasCapability(features, "dhcp", "reservations")} onChanged={reload} />
             </div>
           </SectionCard>
         </div>
+        {EXTRA_SECTIONS.filter((s) => !s.requires || (features && s.requires(features))).map(({ id, title, Component }) => (
+          <div key={id} className="min-w-0">
+            <SectionCard title={title}>
+              <Component />
+            </SectionCard>
+          </div>
+        ))}
       </div>
     </>
   );

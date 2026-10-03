@@ -1,4 +1,6 @@
-export type Access = "authorized" | "lan_only" | "pending" | "blocked";
+import type { JsonSchema } from "@/providers/types";
+
+export type Access = "authorized" | "lan_only" | "pending" | "blocked" | "guest";
 
 export interface Device {
   id: string;
@@ -109,7 +111,8 @@ export type NetworkField =
   | "gateway"
   | "quarantine_start"
   | "quarantine_end"
-  | "pihole_url"
+  | "guest_start"
+  | "guest_end"
   | "sentinel_interface"
   | "sweep_interval_s"
   | "scan_window_start"
@@ -124,14 +127,15 @@ export interface AppSettings {
     gateway: string;
     quarantine_start: string;
     quarantine_end: string;
-    pihole_url: string;
+    guest_start: string;
+    guest_end: string;
     sentinel_interface: string;
     sweep_interval_s: number;
   };
   scan_window: { start: string; end: string };
   source?: Partial<Record<NetworkField, "env" | "custom">>;
   status: {
-    pihole_down_since: string | null;
+    dhcp_down_since: string | null;
     dns_down_since: string | null;
     sentinel_down_since: string | null;
     last_sweep_at: string | null;
@@ -158,3 +162,95 @@ export interface Approval {
   device: Device;
   enforcement: string;
 }
+
+export interface ProviderRef {
+  kind: string;
+  label: string;
+  capabilities: string[];   // already filtered to the role this ref holds
+  policies?: string[];      // DHCP role only
+  shared?: boolean;         // DNS served by the same connection as DHCP
+  down_since: string | null;
+}
+
+export interface ProvidersFeature {
+  dhcp: ProviderRef | null;
+  dns: ProviderRef | null;
+}
+
+export interface Features {
+  notify?: { email: boolean; gotify: boolean };
+  providers?: ProvidersFeature;
+  guests?: { enabled: boolean; pool: boolean; color?: string; icon?: string };
+}
+
+export type ProviderRole = "dhcp" | "dns";
+
+export interface ProviderKind {
+  kind: string;
+  label: string;
+  description: string;
+  docs_url: string;
+  roles: string[];
+  capabilities: string[];
+  policies: string[];
+  schema: JsonSchema;
+  secret_fields: string[];
+}
+
+export interface ProviderRoleView {
+  kind: string;
+  label: string;
+  source: "env" | "custom";
+  shared?: boolean;
+  config: Record<string, unknown>;   // secrets come back as booleans (set or not)
+  schema?: JsonSchema;
+  secret_fields?: string[];
+}
+
+export interface ProvidersList {
+  available: ProviderKind[];
+  roles: Record<ProviderRole, ProviderRoleView | null>;
+}
+
+// --- A ---
+export type ChannelState<V> = { values: V; source: Record<keyof V, "env" | "custom">; ready: boolean };
+export type GotifyValues = { url: string; token: boolean };
+export type EmailValues = {
+  host: string;
+  port: number;
+  security: "ssl" | "starttls" | "none";
+  user: string;
+  password: boolean;
+  sender: string;
+};
+export type ChannelsView = { gotify: ChannelState<GotifyValues>; email: ChannelState<EmailValues> };
+
+// --- B ---
+export type AuthProvider = {
+  id: string;
+  name: string;
+  discovery_url: string;
+  client_id: string;
+  client_secret: boolean;
+  scopes: string;
+  enabled: boolean;
+  source: "env" | "custom";
+};
+export type AuthSettings = { allowed_emails: string; allowed_emails_source: "env" | "custom"; providers: AuthProvider[] };
+
+// --- E ---
+export type Guest = Device & {
+  guest_since: string;
+  guest_expires_at: string | null;
+  effective_expires_at: string | null;
+  expiry_source: "device" | "global" | "inactive" | null;
+};
+export type ExpiryInput =
+  | { expires_in_hours: number }
+  | { expires_on: string }
+  | { expires_at: string }
+  | { clear_expiry: true }
+  | Record<string, never>;
+export type GuestRules = { auto_remove_hours: number | null; inactive_remove_hours: number | null };
+// GET/PUT /guests/settings: the removal rules plus the guests' look.
+export type GuestSettings = GuestRules & { color: string; icon: string };

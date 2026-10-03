@@ -5,17 +5,21 @@ import { Plus } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import { CompactGroup } from "@/components/compact-group";
-import { CustomColor } from "@/components/custom-color";
-import { Button, Card, Checkbox, Field, IconTile, Notice, PageHeader, Segmented, inputClass } from "@/components/ui";
+import { HoursRule } from "@/components/hours-rule";
+import { ColorPicker, IconPicker, PALETTE } from "@/components/look-picker";
+import { Button, Card, Field, IconTile, Notice, PageHeader, Segmented, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import { ACCESS_LABELS } from "@/lib/format";
-import { GROUP_ICONS, PENDING_COLOR, QuarantineIcon, iconFor } from "@/lib/group-icons";
-import { lastOctet, rangeUsage } from "@/lib/ipplan";
+import { PENDING_COLOR, QuarantineIcon, guestLook, iconFor } from "@/lib/group-icons";
+import { guestPool, lastOctet, rangeUsage } from "@/lib/ipplan";
+import { hasCapability, lanOnlyAllowed } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Access, Device, Group } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
 
-const PALETTE = ["#6FB7FF", "#B69CF0", "#E58FB8", "#5CC8A8", "#A6D86A", "#E0A84E", "#F0765C", "#9AA3A8"];
+import { GuestEditor } from "./guest-editor";
+
 const ROW = "grid grid-cols-[34px_1fr_90px_56px] items-center gap-3.5 px-4 sm:grid-cols-[34px_1fr_110px_60px_120px]";
 const HEAD = "text-xs font-medium uppercase tracking-[.06em] text-faint";
 
@@ -38,14 +42,21 @@ function span(start: string, end: string): string {
 
 export default function GroupsPage() {
   const { settings } = useSettings();
+  const { features } = useFeatures();
   const groupsRes = useResource<Group[]>("/groups");
   const devicesRes = useResource<Device[]>("/devices");
-  const [selected, setSelected] = useState<number | "new" | null>(null);
+  const [selected, setSelected] = useState<number | "new" | "guests" | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string }>();
   const groups = groupsRes.data ?? [];
   const devices = devicesRes.data ?? [];
   const current = typeof selected === "number" ? groups.find((g) => g.id === selected) : undefined;
   const pendingCount = devices.filter((d) => d.access === "pending").length;
+  const quarantineOn = hasCapability(features, "dhcp", "quarantine");
+  const guestsOn = Boolean(features?.guests?.enabled);
+  const guestsRes = useResource<Device[]>(guestsOn ? "/devices?access=guest" : null);
+  const pool = guestPool(settings.network);
+  const guestTile = guestLook(features);
+  const guests = guestsRes.data ?? [];
 
   return (
     <>
@@ -85,16 +96,47 @@ export default function GroupsPage() {
               <span className="hidden text-[13px] text-muted sm:block">{ACCESS_LABELS[g.default_access]}</span>
             </button>
           ))}
-          <div className={clsx(ROW, "py-3 text-text")} title="The DHCP pool for unknown devices, set in the server configuration">
-            <IconTile Icon={QuarantineIcon} color={PENDING_COLOR} size={34} />
-            <span className="text-[15px] font-semibold">Quarantine</span>
-            <span className="font-mono text-[13px] text-muted">{span(settings.network.quarantine_start, settings.network.quarantine_end)}</span>
-            <span className="font-mono text-[13px] text-text2">{pendingCount}</span>
-            <span className="hidden text-[13px] text-muted sm:block">Quarantine</span>
-          </div>
+          {quarantineOn && (
+            <div className={clsx(ROW, "py-3 text-text")} title="The DHCP pool for unknown devices, set in Settings → Network">
+              <IconTile Icon={QuarantineIcon} color={PENDING_COLOR} size={34} />
+              <span className="text-[15px] font-semibold">Quarantine</span>
+              <span className="font-mono text-[13px] text-muted">{span(settings.network.quarantine_start, settings.network.quarantine_end)}</span>
+              <span className="font-mono text-[13px] text-text2">{pendingCount}</span>
+              <span className="hidden text-[13px] text-muted sm:block">Quarantine</span>
+            </div>
+          )}
+          {guestsOn && (
+            <button
+              type="button"
+              aria-pressed={selected === "guests"}
+              onClick={() => setSelected("guests")}
+              className={clsx(
+                ROW,
+                "w-full py-3 text-left text-text",
+                quarantineOn && "border-t border-row",
+                selected === "guests" ? "bg-accent-soft" : "hover:bg-card2",
+              )}
+            >
+              <IconTile Icon={guestTile.Icon} color={guestTile.color} size={34} />
+              <span className="text-[15px] font-semibold">Guests</span>
+              <span className="font-mono text-[13px] text-muted">{pool ? span(pool.start, pool.end) : "no pool"}</span>
+              <span className="font-mono text-[13px] text-text2">{guests.length}</span>
+              <span className="hidden text-[13px] text-muted sm:block">{ACCESS_LABELS.guest}</span>
+            </button>
+          )}
         </Card>
         {selected === null ? (
           <Card className="p-6 text-sm text-muted">Select a group to edit it, or create a new one.</Card>
+        ) : selected === "guests" ? (
+          <GuestEditor
+            guests={guests}
+            onDone={async (text) => {
+              setNotice({ tone: "success", text });
+              setSelected(null);
+              await guestsRes.reload();
+            }}
+            onError={(text) => setNotice({ tone: "error", text })}
+          />
         ) : (
           <GroupEditor
             key={selected}
@@ -125,6 +167,9 @@ function GroupEditor({
   onError: (text: string) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(group ? { ...group } : EMPTY);
+  const { features } = useFeatures();
+  // Keep LAN only on a group that already has it, so the editor never shows a value it cannot display.
+  const lanOnly = lanOnlyAllowed(features) || group?.default_access === "lan_only";
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const usage = group ? rangeUsage(group, devices) : null;
@@ -179,46 +224,8 @@ function GroupEditor({
         <Field label="Name">
           <input className={inputClass} value={draft.name} onChange={(e) => set("name", e.target.value)} required maxLength={64} />
         </Field>
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-2 text-[13px] font-medium text-text2">Color</legend>
-          <div className="flex flex-wrap gap-2">
-            {PALETTE.map((color) => {
-              const active = draft.color.toUpperCase() === color;
-              return (
-                <button
-                  key={color}
-                  type="button"
-                  aria-label={`Color ${color}`}
-                  aria-pressed={active}
-                  onClick={() => set("color", color)}
-                  className={clsx("size-8 rounded-lg", active ? "border-[3px] border-text" : "border border-line2")}
-                  style={{ background: color }}
-                />
-              );
-            })}
-            <CustomColor value={draft.color} palette={PALETTE} onChange={(color) => set("color", color)} />
-          </div>
-        </fieldset>
-        <fieldset className="flex flex-col gap-2">
-          <legend className="mb-2 text-[13px] font-medium text-text2">Icon</legend>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(GROUP_ICONS).map(([key, Icon]) => (
-              <button
-                key={key}
-                type="button"
-                aria-label={`Icon ${key}`}
-                aria-pressed={draft.icon === key}
-                onClick={() => set("icon", key)}
-                className={clsx(
-                  "flex size-10 items-center justify-center rounded-lg border text-text2",
-                  draft.icon === key ? "border-accent bg-accent-soft" : "border-line2 bg-card hover:text-text",
-                )}
-              >
-                <Icon className="size-[18px]" aria-hidden />
-              </button>
-            ))}
-          </div>
-        </fieldset>
+        <ColorPicker value={draft.color} onChange={(color) => set("color", color)} />
+        <IconPicker value={draft.icon} onChange={(icon) => set("icon", icon)} />
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Range start">
             <input className={`${inputClass} font-mono`} value={draft.range_start} onChange={(e) => set("range_start", e.target.value)} required />
@@ -239,48 +246,36 @@ function GroupEditor({
               onChange={(value) => set("default_access", value)}
               options={[
                 { value: "authorized", label: ACCESS_LABELS.authorized },
-                { value: "lan_only", label: ACCESS_LABELS.lan_only },
+                ...(lanOnly ? [{ value: "lan_only" as const, label: ACCESS_LABELS.lan_only }] : []),
               ]}
             />
           </div>
-          <span className="text-xs text-faint">
-            LAN only: the device gets no gateway, so it talks to home devices but never reaches the internet.
-          </span>
+          {lanOnly && (
+            <span className="text-xs text-faint">
+              LAN only: the device gets no gateway, so it talks to home devices but never reaches the internet.
+            </span>
+          )}
         </div>
-        <div className="flex flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2.5 text-sm text-text2">
-            <Checkbox
-              aria-label="Offline alerts"
-              checked={draft.offline_alert_hours !== null}
-              onChange={(e) => set("offline_alert_hours", e.target.checked ? draft.offline_alert_hours ?? 24 : null)}
-            />
-            <span>Alert when a member is offline for more than</span>
-            <input
-              aria-label="Offline hours"
-              type="number"
-              min={1}
-              disabled={draft.offline_alert_hours === null}
-              className={`${inputClass} h-9 w-[72px] font-mono disabled:opacity-50`}
-              value={draft.offline_alert_hours ?? ""}
-              onChange={(e) => set("offline_alert_hours", e.target.value ? Number(e.target.value) : 1)}
-            />
-            <span>h</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2.5 text-sm text-text2">
-            <Checkbox aria-label="Scheduled port scans" checked={draft.scan_enabled} onChange={(e) => set("scan_enabled", e.target.checked)} />
-            <span>Scan members for open ports every</span>
-            <input
-              aria-label="Scan interval hours"
-              type="number"
-              min={1}
-              max={720}
-              disabled={!draft.scan_enabled}
-              className={`${inputClass} h-9 w-[80px] font-mono disabled:opacity-50`}
-              value={draft.scan_interval_hours}
-              onChange={(e) => set("scan_interval_hours", Number(e.target.value) || 1)}
-            />
-            <span>h</span>
-          </div>
+        <div className="grid items-end gap-4 sm:grid-cols-2">
+          <HoursRule
+            label="Alert when a member is offline for more than"
+            checkboxLabel="Offline alerts"
+            inputLabel="Offline hours"
+            checked={draft.offline_alert_hours !== null}
+            onToggle={(on) => set("offline_alert_hours", on ? draft.offline_alert_hours ?? 24 : null)}
+            value={draft.offline_alert_hours ?? ""}
+            onValue={(value) => set("offline_alert_hours", value ? Number(value) : 1)}
+          />
+          <HoursRule
+            label="Scan members for open ports every"
+            checkboxLabel="Scheduled port scans"
+            inputLabel="Scan interval hours"
+            checked={draft.scan_enabled}
+            onToggle={(on) => set("scan_enabled", on)}
+            value={draft.scan_interval_hours}
+            onValue={(value) => set("scan_interval_hours", Number(value) || 1)}
+            max={720}
+          />
         </div>
         <div className="flex flex-wrap justify-between gap-3 border-t border-line pt-4">
           {group ? (

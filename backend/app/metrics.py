@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.health import annotate
 from app.models import Access, Device, Event, Setting
+from app.providers.base import Role
+from app.providers.config import load_role
 from app.syncmode import load_sync_mode
 
 log = logging.getLogger("janus.metrics")
@@ -89,9 +91,11 @@ def render_metrics(db: Session) -> str:
         scan.add(scan_ts)
     families.append(scan)
 
-    pihole = _Family("pihole_up", "gauge", "1 when Pi-hole answers Janus, 0 while it is marked down.")
-    pihole.add(0 if _setting(db, "pihole.down_since") else 1)
-    families.append(pihole)
+    provider = _Family("provider_up", "gauge", "1 when the provider holding the role answers, 0 while it is marked down.")
+    for role in (Role.DHCP, Role.DNS):
+        if load_role(db, role) is not None:   # a role that is off has no provider to be up or down
+            provider.add(0 if _setting(db, f"{role.value}.down_since") else 1, role=role.value)
+    families.append(provider)
 
     sentinel = _Family("sentinel_up", "gauge", "1 when the sentinel heartbeat is fresh, 0 while it is marked down.")
     sentinel.add(0 if _setting(db, "sentinel.down_since") else 1)
@@ -101,7 +105,7 @@ def render_metrics(db: Session) -> str:
     maintenance.add(1 if _setting(db, "maintenance.active") else 0)
     families.append(maintenance)
 
-    mode = _Family("sync_mode_info", "gauge", "Pi-hole sync mode (dry-run or apply).")
+    mode = _Family("sync_mode_info", "gauge", "Reservation sync mode (dry-run or apply).")
     mode.add(1, mode=load_sync_mode(db))
     families.append(mode)
 

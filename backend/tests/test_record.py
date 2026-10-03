@@ -188,3 +188,12 @@ def test_conflict_names_the_reservation_owner_even_when_it_answers_second(db, kn
     assert event.payload["owner"]["name"] == "LAPTOP_A"
     assert event.payload["claimant"]["mac"] == other
     assert event.payload["reserved"] is True
+
+
+def test_guest_seen_at_any_ip_raises_no_mismatch(db):
+    db.add(Device(mac="00:00:5E:00:53:62", name="Anna", hostname="anna", access=Access.guest, guest_since=NOW))
+    db.flush()
+    _record(db, "00:00:5E:00:53:62", "192.168.1.210")
+    _record(db, "00:00:5E:00:53:62", "192.168.1.211", at=NOW + timedelta(minutes=10))
+    _record(db, "00:00:5E:00:53:62", "192.168.1.211", at=NOW + timedelta(minutes=20))
+    assert _events(db, "device.ip_mismatch") == [] and _events(db, "device.new") == []

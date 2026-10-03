@@ -1,29 +1,20 @@
 "use client";
 
 import clsx from "clsx";
-import { Bell, Clock3, Grid2x2, House, Layers, LogOut, Monitor, NotepadText, Settings, Share2, X } from "lucide-react";
+import { LogOut, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { logout } from "@/lib/auth-actions";
 import { describeDays } from "@/lib/days";
+import { useFeatures } from "@/lib/features";
 import { relativeTime } from "@/lib/format";
+import { type NavItem, visibleNav } from "@/lib/nav";
+import { providerNav, providerPill } from "@/lib/provider-status";
 import { nextScanIn, useNow } from "@/lib/use-now";
 import { useSettings } from "@/lib/settings-context";
 import type { Device, MaintenanceWindow } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
-
-const NAV = [
-  { href: "/", label: "Overview", icon: House },
-  { href: "/map", label: "Network map", icon: Share2 },
-  { href: "/devices", label: "Devices", icon: Monitor, count: "all" },
-  { href: "/pending", label: "Pending", icon: Clock3, count: "pending" },
-  { href: "/ip-plan", label: "IP plan", icon: Grid2x2 },
-  { href: "/groups", label: "Groups", icon: Layers },
-  { href: "/notifications", label: "Notifications", icon: Bell },
-  { href: "/events", label: "Event log", icon: NotepadText },
-  { href: "/settings", label: "Settings", icon: Settings },
-] as const;
 
 export function Logo() {
   return (
@@ -41,22 +32,20 @@ export function Logo() {
 export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () => void; user: string }) {
   const pathname = usePathname();
   const { settings } = useSettings();
+  const { features } = useFeatures();
   const { data: devices } = useResource<Device[]>("/devices", { refreshMs: 15_000 });
+  // /devices leaves guests out. The plain device list is lighter than /guests, which also works out every expiry.
+  const { data: guests } = useResource<Device[]>(features?.guests?.enabled ? "/devices?access=guest" : null, { refreshMs: 15_000 });
   const now = useNow(1000);
   const nextScan = nextScanIn(settings.status.last_sweep_at, settings.network.sweep_interval_s, now);
   const { data: windows } = useResource<MaintenanceWindow[]>("/maintenance-windows");
   const maint = windows?.find((w) => w.enabled);
   const { status } = settings;
-  const pihole = status.dns_down_since
-    ? { tone: "bg-bad", text: "Pi-hole DNS down" }
-    : status.pihole_down_since
-    ? { tone: "bg-bad", text: "Pi-hole unreachable" }
-    : settings.sync_mode === "apply"
-      ? { tone: "bg-ok", text: "Pi-hole DHCP · active" }
-      : { tone: "bg-accent", text: "Pi-hole · dry-run" };
-  const counts = {
-    all: devices?.filter((d) => d.access !== "pending").length ?? 0,
+  const pill = providerPill(features, settings.sync_mode);
+  const counts: Record<NonNullable<NavItem["count"]>, number> = {
+    all: devices?.filter((d) => d.access !== "pending" && d.access !== "guest").length ?? 0,
     pending: devices?.filter((d) => d.access === "pending").length ?? 0,
+    guests: guests?.length ?? 0,
   };
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
@@ -77,9 +66,9 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
           </button>
         </div>
         <ul className="flex flex-col gap-[3px]">
-          {NAV.map((item) => {
+          {visibleNav(features, providerNav(features)).map((item) => {
             const Icon = item.icon;
-            const count = "count" in item ? counts[item.count] : undefined;
+            const count = item.count ? counts[item.count] : undefined;
             const active = isActive(item.href);
             return (
               <li key={item.href}>
@@ -98,7 +87,7 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
                     <span
                       className={clsx(
                         "ml-auto rounded-full px-2 py-0.5 font-mono text-xs",
-                        "count" in item && item.count === "pending" ? "bg-accent text-accent-ink" : "bg-line text-text2",
+                        item.count === "pending" ? "bg-accent text-accent-ink" : "bg-line text-text2",
                       )}
                     >
                       {count}
@@ -111,8 +100,8 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
         </ul>
         <div className="mt-auto flex flex-col gap-2.5 rounded-[10px] border border-line p-3.5 text-[13px] text-muted">
           <span className="flex items-center gap-2">
-            <span className={clsx("size-2 rounded-full", pihole.tone)} />
-            {pihole.text}
+            <span className={clsx("size-2 rounded-full", pill.tone)} />
+            {pill.text}
           </span>
           <span className="flex items-center gap-2">
             <span className={clsx("size-2 rounded-full", status.sentinel_down_since ? "bg-bad" : "bg-ok")} />

@@ -9,7 +9,7 @@
       "url": "https://github.com/mattia-longobardo/janus.git",
       "provider": "github",
       "link_mode": "local-only",
-      "revision": "101df2d7c406d80cfab6f00d89621bd1e37ea7c7"
+      "revision": "42f31a43d06c9a745236d7e1bb413d24d4ce2431"
     }
   },
   "lanes": [
@@ -88,6 +88,22 @@
       ]
     },
     {
+      "id": "guest",
+      "type": "active",
+      "label": "Guest",
+      "sublabel": "guest pool, optional expiry",
+      "lane": "restricted",
+      "col": 1,
+      "tag": "no static IP",
+      "sources": [
+        {
+          "path": "backend/app/guests.py",
+          "line": 74,
+          "end_line": 92
+        }
+      ]
+    },
+    {
       "id": "lan_only",
       "type": "active",
       "label": "LAN only",
@@ -97,9 +113,9 @@
       "tag": "lan-only tag",
       "sources": [
         {
-          "path": "backend/app/pihole/reservations.py",
-          "line": 15,
-          "end_line": 27
+          "path": "backend/app/providers/pihole/codec.py",
+          "line": 8,
+          "end_line": 18
         },
         {
           "path": "backend/app/api/devices.py",
@@ -191,6 +207,18 @@
       "from": "authorized",
       "to": "deleted",
       "label": "delete",
+      "variant": "dashed"
+    },
+    {
+      "from": "pending",
+      "to": "guest",
+      "label": "add as guest",
+      "variant": "security"
+    },
+    {
+      "from": "guest",
+      "to": "pending",
+      "label": "expired",
       "variant": "dashed"
     }
   ],

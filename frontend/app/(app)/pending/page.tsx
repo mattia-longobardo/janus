@@ -7,9 +7,11 @@ import { ApproveForm } from "@/components/approve-form";
 import { InfoCard, InfoRow } from "@/components/device-info";
 import { Card, Notice } from "@/components/ui";
 import { describeEvent } from "@/lib/events";
+import { useFeatures } from "@/lib/features";
 import { formatDateTime, ipSortKey, relativeTime } from "@/lib/format";
+import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
-import type { Approval, Device, EventItem, Group } from "@/lib/types";
+import type { Approval, Device, EventItem, Group, Guest } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
 
 const EVENT_DOT: Record<string, string> = {
@@ -20,8 +22,14 @@ const EVENT_DOT: Record<string, string> = {
   "device.blocked": "bg-bad",
 };
 
+const ENFORCEMENT: Record<string, string> = {
+  "dry-run": "saved (provider sync is in dry-run)",
+  "no provider": "saved (no network provider: Janus only records it)",
+};
+
 export default function PendingPage() {
   const { settings } = useSettings();
+  const { features } = useFeatures();
   const devicesRes = useResource<Device[]>("/devices?access=pending", { refreshMs: 15_000 });
   const groupsRes = useResource<Group[]>("/groups");
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string }>();
@@ -29,9 +37,14 @@ export default function PendingPage() {
   const groups = groupsRes.data ?? [];
 
   function done(result: Approval) {
-    const enforcement = result.enforcement === "dry-run" ? "saved (Pi-hole sync is in dry-run)" : result.enforcement;
+    const enforcement = ENFORCEMENT[result.enforcement] ?? result.enforcement;
     const what = result.device.access === "blocked" ? "blocked" : `approved on ${result.device.static_ip}`;
     setNotice({ tone: result.enforcement.startsWith("failed") ? "error" : "success", text: `${result.device.name} ${what} — ${enforcement}` });
+    void devicesRes.reload();
+  }
+
+  function admitted(guest: Guest) {
+    setNotice({ tone: "success", text: `${guest.name} added as a guest` });
     void devicesRes.reload();
   }
 
@@ -52,7 +65,7 @@ export default function PendingPage() {
         </>
       )}
       {pending.map((device, index) => (
-        <PendingDevice key={device.id} device={device} groups={groups} onDone={done} first={index === 0} quarantine={settings.network} />
+        <PendingDevice key={device.id} device={device} groups={groups} onDone={done} onGuest={admitted} first={index === 0} quarantine={hasCapability(features, "dhcp", "quarantine") ? settings.network : null} />
       ))}
     </div>
   );
@@ -62,18 +75,21 @@ function PendingDevice({
   device,
   groups,
   onDone,
+  onGuest,
   first,
   quarantine,
 }: {
   device: Device;
   groups: Group[];
   onDone: (result: Approval) => void;
+  onGuest: (guest: Guest) => void;
   first: boolean;
-  quarantine: { quarantine_start: string; quarantine_end: string };
+  quarantine: { quarantine_start: string; quarantine_end: string } | null; // null: the DHCP provider has no quarantine pool
 }) {
   const { settings } = useSettings();
   const eventsRes = useResource<EventItem[]>(device.mac ? `/events?mac=${encodeURIComponent(device.mac)}&limit=10` : null);
   const inQuarantine =
+    quarantine !== null &&
     device.last_ip !== null &&
     ipSortKey(device.last_ip) >= ipSortKey(quarantine.quarantine_start) &&
     ipSortKey(device.last_ip) <= ipSortKey(quarantine.quarantine_end);
@@ -120,7 +136,7 @@ function PendingDevice({
             )}
           </InfoCard>
         </div>
-        <ApproveForm device={device} groups={groups} onApproved={onDone} onBlocked={onDone} />
+        <ApproveForm device={device} groups={groups} onApproved={onDone} onBlocked={onDone} onGuest={onGuest} />
       </div>
     </section>
   );

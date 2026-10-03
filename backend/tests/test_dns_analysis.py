@@ -3,12 +3,19 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.api.sync import get_pihole
 from app.intel.dns import analyze, base_domain, bucket_seconds
 from app.models import Access, Device
+from app.providers.base import DnsQuery
+from app.providers.pihole.provider import PiholeConfig, PiholeProvider
 from tests.fakes import FakePihole
+from tests.fakes_provider import app_override_dns
 
 ROME = ZoneInfo("Europe/Rome")
+
+
+def _q(time, domain, status, qtype, reply=None, blocked=False):
+    return DnsQuery(time=time, domain=domain, qtype=qtype, blocked=blocked, status=status, reply=reply,
+                    client_ip="192.168.1.41")
 
 
 @pytest.mark.parametrize(("domain", "base"), [
@@ -30,10 +37,10 @@ def test_analyze_counts_buckets_and_breakdowns():
     until = 1_790_000_000 - 1_790_000_000 % 3600 + 3600
     since = until - 3 * 3600
     queries = [
-        {"time": since + 10, "domain": "api.example.org", "status": "FORWARDED", "type": "A", "reply": {"type": "IP"}},
-        {"time": since + 20, "domain": "cdn.example.org", "status": "CACHE", "type": "AAAA", "reply": {"type": "IP"}},
-        {"time": since + 3700, "domain": "ads.tracker.net", "status": "GRAVITY", "type": "A", "reply": {"type": "BLOB"}},
-        {"time": since + 7300, "domain": "api.example.org", "status": "FORWARDED", "type": "HTTPS"},
+        _q(since + 10, "api.example.org", "FORWARDED", "A", "IP"),
+        _q(since + 20, "cdn.example.org", "CACHE", "AAAA", "IP"),
+        _q(since + 3700, "ads.tracker.net", "GRAVITY", "A", "BLOB", blocked=True),
+        _q(since + 7300, "api.example.org", "FORWARDED", "HTTPS"),
     ]
     body = analyze(queries, 10, since, until, 3, ROME)
     assert body["totals"] == {"total": 10, "sampled": 4, "truncated": True, "blocked": 1, "blocked_pct": 25.0,
@@ -48,7 +55,7 @@ def test_analyze_counts_buckets_and_breakdowns():
     assert body["blocked_domains"] == [{"domain": "ads.tracker.net", "count": 1}]
     assert body["base_domains"][0] == {"domain": "example.org", "count": 3}
     assert {t["type"]: t["count"] for t in body["query_types"]} == {"A": 2, "AAAA": 1, "HTTPS": 1}
-    assert {s["status"]: s["blocked"] for s in body["statuses"]}["GRAVITY"] is True
+    assert {s["status"]: s["blocked"] for s in body["statuses"]} == {"FORWARDED": False, "CACHE": False, "GRAVITY": True}
     assert {r["type"]: r["count"] for r in body["replies"]} == {"IP": 2, "BLOB": 1}
 
 
@@ -66,11 +73,11 @@ def test_analysis_endpoint(client, db):
     fake = FakePihole()
     fake.queries = [{"time": time.time() - 30, "domain": "ads.example.net", "status": "GRAVITY", "type": "A",
                      "client": {"ip": "192.168.1.41"}}]
-    client.app.dependency_overrides[get_pihole] = lambda: fake
+    app_override_dns(client, ("pihole", lambda: PiholeProvider(fake, PiholeConfig(url="http://pihole.test"))))
     body = client.get(f"/api/devices/{device.id}/dns/analysis", params={"hours": 72}).json()
     assert body["totals"]["blocked"] == 1
     assert body["hours"] == 72 and len(body["timeline"]) in (72, 73)
     assert fake.last_query["disk"] is True
     assert client.get(f"/api/devices/{device.id}/dns/analysis", params={"hours": 200}).status_code == 422
-    client.app.dependency_overrides[get_pihole] = lambda: FakePihole(fail=True)
+    app_override_dns(client, ("pihole", lambda: PiholeProvider(FakePihole(fail=True), PiholeConfig(url="http://pihole.test"))))
     assert client.get(f"/api/devices/{device.id}/dns/analysis").status_code == 502

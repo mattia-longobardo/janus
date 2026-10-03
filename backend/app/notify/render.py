@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 from app.models import Event
 from app.notify.catalog import CATALOG
 
-SERVICE_NAMES = {"pihole": "Pi-hole", "pihole_dns": "Pi-hole DNS", "sentinel": "Scanner"}
+# "pihole" and "pihole_dns" name the services of events recorded before the provider roles existed.
+SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "pihole": "Pi-hole", "pihole_dns": "Pi-hole DNS", "sentinel": "Scanner"}
 ACCESS_NAMES = {"authorized": "full network", "lan_only": "LAN only"}
 
 
@@ -29,6 +30,8 @@ def render(event: Event, device_name: str | None, *, base_url: str, tz: ZoneInfo
     name = device_name or p.get("name") or event.mac or "device"
     url = f"{base_url}/devices/{p['device_id']}" if p.get("device_id") else base_url
     service = SERVICE_NAMES.get(p.get("service", ""), "Service")
+    if p.get("provider"):
+        service = f"{p['provider']} {service}"
     kind = event.type
 
     if kind == "device.new":
@@ -82,4 +85,11 @@ def render(event: Event, device_name: str | None, *, base_url: str, tz: ZoneInfo
     if kind == "security.risky_service":
         return Message(f"Risky service on {name}",
                        f"{p.get('port')}/{p.get('proto')} {p.get('service') or 'unknown'}: {p.get('reason')}", priority, url)
+    if kind == "guest.added":
+        expiry = f"expires {_local(p['expires_at'], tz)}" if p.get("expires_at") else "no expiry"
+        return Message("Guest added", f"Guest {name} added ({expiry})", priority, f"{base_url}/guests")
+    if kind == "guest.expired":
+        return Message("Guest expired", f"Guest {name} expired and was removed", priority, f"{base_url}/guests")
+    if kind == "guest.removed":
+        return Message("Guest removed", f"Guest {name} removed", priority, f"{base_url}/guests")
     return Message("Janus test notification", "If you can read this, the channel works.", priority, base_url)

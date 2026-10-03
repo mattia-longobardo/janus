@@ -5,10 +5,16 @@ export const EVENT_TYPES = [
   "device.new", "device.approved", "device.blocked", "device.updated", "device.deleted", "device.offline", "device.ip_mismatch",
   "device.private_mac", "device.gateway", "ip.conflict", "infra.down", "infra.up", "sync.applied", "sync.failed",
   "security.new_port", "security.risky_service", "security.risk_muted", "security.risk_unmuted", "scan.completed", "scan.failed", "maintenance.start",
-  "maintenance.end", "notify.test", "notify.failed", "import.csv",
+  "maintenance.end", "notify.test", "notify.failed", "import.csv", "guest.added", "guest.expired", "guest.removed",
 ];
 
-const SERVICES: Record<string, string> = { pihole: "Pi-hole", pihole_dns: "Pi-hole DNS", sentinel: "Scanner" };
+// "pihole" and "pihole_dns" only appear in events recorded before providers became plugins.
+const SERVICES: Record<string, string> = { dhcp: "DHCP", dns: "DNS", pihole: "Pi-hole", pihole_dns: "Pi-hole DNS", sentinel: "Scanner" };
+
+function serviceName(p: Record<string, any>): string {
+  const name = SERVICES[p.service] ?? p.service;
+  return p.provider ? `${p.provider} ${name}` : name;
+}
 
 export function describeEvent(event: Pick<EventItem, "type" | "payload">): string {
   const p = event.payload as Record<string, any>;
@@ -37,13 +43,13 @@ export function describeEvent(event: Pick<EventItem, "type" | "payload">): strin
       }
       return `IP conflict on ${p.ip}`;
     case "infra.down":
-      return `${SERVICES[p.service] ?? p.service} unreachable`;
+      return `${serviceName(p)} unreachable`;
     case "infra.up":
-      return `${SERVICES[p.service] ?? p.service} reachable again`;
+      return `${serviceName(p)} reachable again`;
     case "sync.applied":
-      return `Pi-hole reservations: +${(p.added ?? []).length} −${(p.removed ?? []).length}`;
+      return `DHCP reservations: +${(p.added ?? []).length} −${(p.removed ?? []).length}`;
     case "sync.failed":
-      return `Pi-hole refused ${(p.failed ?? []).length} reservation(s)`;
+      return `The DHCP provider refused ${(p.failed ?? []).length} reservation(s)`;
     case "security.new_port":
       return `New open port ${p.port}/${p.proto}`;
     case "security.risky_service": {
@@ -68,6 +74,12 @@ export function describeEvent(event: Pick<EventItem, "type" | "payload">): strin
       return `Test notification (${p.channel})`;
     case "notify.failed":
       return "Notification could not be delivered";
+    case "guest.added":
+      return `Guest ${p.name} added`;
+    case "guest.expired":
+      return `Guest ${p.name} expired`;
+    case "guest.removed":
+      return `Guest ${p.name} removed`;
     case "import.csv":
       return `CSV import: ${p.devices_created ?? 0} created, ${p.devices_updated ?? 0} updated`;
     default:

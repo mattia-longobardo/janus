@@ -5,12 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.db import get_db
 from app.events import record_event
 from app.general import TIMEZONE_KEY, current_tz
 from app.models import Setting
 from app.netconfig import NetConfigError, load_netconfig, sources, update_netconfig
+from app.notify.config import EMAIL, GOTIFY
 from app.syncmode import load_sync_mode
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -24,11 +24,12 @@ class NetworkPatch(BaseModel):
     gateway: str | None = None
     quarantine_start: str | None = None
     quarantine_end: str | None = None
-    pihole_url: str | None = None
     sentinel_interface: str | None = None
     sweep_interval_s: int | None = None
     scan_window_start: str | None = None
     scan_window_end: str | None = None
+    guest_start: str | None = None
+    guest_end: str | None = None
 
 
 class SettingsPatch(BaseModel):
@@ -54,20 +55,21 @@ def _view(db: Session) -> dict[str, Any]:
             "gateway": cfg.gateway,
             "quarantine_start": cfg.quarantine_start,
             "quarantine_end": cfg.quarantine_end,
-            "pihole_url": cfg.pihole_url,
             "sentinel_interface": cfg.sentinel_interface,
             "sweep_interval_s": cfg.sweep_interval_s,
+            "guest_start": cfg.guest_start,
+            "guest_end": cfg.guest_end,
         },
         "scan_window": {"start": cfg.scan_window_start, "end": cfg.scan_window_end},
         "source": sources(db),
         "status": {
-            "pihole_down_since": _setting(db, "pihole.down_since"),
-            "dns_down_since": _setting(db, "pihole_dns.down_since"),
+            "dhcp_down_since": _setting(db, "dhcp.down_since"),
+            "dns_down_since": _setting(db, "dns.down_since"),
             "sentinel_down_since": _setting(db, "sentinel.down_since"),
             "last_sweep_at": _setting(db, "sentinel.heartbeat"),
             "maintenance_active": bool(_setting(db, "maintenance.active")),
         },
-        "channels": {"gotify_url": settings.gotify_url, "email_sender": settings.smtp_sender},
+        "channels": {"gotify_url": GOTIFY.load(db)["url"], "email_sender": EMAIL.load(db)["sender"]},
     }
 
 
