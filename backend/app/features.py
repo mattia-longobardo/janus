@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app import guests
 from app.netconfig import load_netconfig
 from app.notify.config import channel_ready
 from app.providers import runtime
@@ -16,10 +17,14 @@ log = logging.getLogger(__name__)
 
 def guests_feature(db: Session) -> dict[str, Any]:
     """Guests work with a DHCP provider that supports them, or with none (Janus only keeps the list). Without a
-    pool Pi-hole guests would get quarantine addresses, hence no router: the page warns when `pool` is false."""
+    pool Pi-hole guests would get quarantine addresses, hence no router: the page warns when `pool` is false.
+    color/icon are the guests' look, so every page draws them without its own request."""
+    look = guests.SETTINGS.load(db)
     return {
         "enabled": Policy.GUEST in runtime.policies(db) or load_role(db, Role.DHCP) is None,
         "pool": bool(load_netconfig(db).guest_pool()),
+        "color": look["color"],
+        "icon": look["icon"],
     }
 
 

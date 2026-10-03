@@ -44,7 +44,15 @@ def test_guests_feature_off_with_provider_without_guest_policy(client, db):
 def test_guests_feature_on_without_any_provider(client, db):
     with fake_pihole():
         pc.save_role(db, Role.DHCP, None, None)
-    assert client.get("/api/features").json()["guests"] == {"enabled": True, "pool": False}
+    assert client.get("/api/features").json()["guests"] == {"enabled": True, "pool": False, "color": "#4FC3D9", "icon": "guest"}
+
+
+def test_guests_feature_carries_the_configured_look(client, db):
+    with fake_pihole():
+        pc.save_role(db, Role.DHCP, None, None)
+    client.put("/api/guests/settings", json={"color": "#E58FB8", "icon": "phone"})
+    guests = client.get("/api/features").json()["guests"]
+    assert (guests["color"], guests["icon"]) == ("#E58FB8", "phone")
 
 
 def test_a_failing_provider_rolls_the_session_back_before_the_next(monkeypatch):
