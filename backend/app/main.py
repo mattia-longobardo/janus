@@ -7,9 +7,11 @@ from app.api import (
     cutover,
     devices,
     events,
+    features,
     groups,
     health,
     intel,
+    internal,
     maintenance,
     map,
     notifications,
@@ -33,7 +35,7 @@ def create_app() -> FastAPI:
     protected = [Depends(require_internal)]
     for router in (groups.router, devices.router, approval.router, sync.router,
                    notifications.router, maintenance.router, events.router, intel.router, settings.router,
-                   map.router, services.router, cutover.router):
+                   map.router, services.router, cutover.router, features.router, internal.router):
         app.include_router(router, dependencies=protected)
     return app
 
