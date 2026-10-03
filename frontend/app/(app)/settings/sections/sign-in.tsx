@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Badge, Button, Checkbox, Field, Notice, inputClass } from "@/components/ui";
+import { Badge, Button, Checkbox, Field, Notice, SCROLL_TARGET, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
 import { authClient } from "@/lib/auth/client";
 import { canRemoveOrDemote } from "@/lib/auth/last-admin";
@@ -320,7 +320,7 @@ export function SignInSection() {
   const user = data?.user as (Account & { source?: string | null }) | undefined;
   if (!user) return <p className="text-sm text-muted">Loading…</p>;
   return (
-    <div id="sign-in" className="flex flex-col gap-6">
+    <div id="sign-in" className={`flex flex-col gap-6 ${SCROLL_TARGET}`}>
       {user.role === "admin" && <UsersPart selfId={user.id} />}
       {user.role === "admin" && <ProvidersPart />}
       {user.source === "local" && <ChangePasswordPart />}

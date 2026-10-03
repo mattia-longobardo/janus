@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { ApproveForm } from "@/components/approve-form";
 import { InfoCard, InfoRow } from "@/components/device-info";
-import { Card, Notice } from "@/components/ui";
+import { Card, Notice, SCROLL_TARGET } from "@/components/ui";
 import { describeEvent } from "@/lib/events";
 import { useFeatures } from "@/lib/features";
 import { formatDateTime, ipSortKey, relativeTime } from "@/lib/format";
@@ -97,7 +97,7 @@ function PendingDevice({
   const events = eventsRes.data ?? [];
 
   return (
-    <section id={device.id} className={first ? "flex flex-col gap-6" : "flex flex-col gap-6 border-t border-line pt-8"}>
+    <section id={device.id} className={`${first ? "flex flex-col gap-6" : "flex flex-col gap-6 border-t border-line pt-8"} ${SCROLL_TARGET}`}>
       <header className="flex flex-wrap items-end justify-between gap-6">
         <div className="flex min-w-0 flex-col gap-1.5">
           <h1 className="break-words font-display text-[30px] font-bold tracking-[-0.02em] lg:text-[36px]">{device.name}</h1>

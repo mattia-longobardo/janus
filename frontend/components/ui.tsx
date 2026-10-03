@@ -2,6 +2,9 @@ import clsx from "clsx";
 import { Check, ChevronLeft, ChevronRight, type LucideIcon } from "lucide-react";
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
 
+// Below lg the sticky mobile header (h-14) covers whatever is scrolled to the top; anchor and scroll targets leave room for it.
+export const SCROLL_TARGET = "scroll-mt-[72px] lg:scroll-mt-0";
+
 export const inputClass =
   "h-11 w-full rounded-lg border border-line2 bg-bg px-3 text-[15px] text-text outline-none focus:border-accent";
 

@@ -56,6 +56,38 @@ describe("GroupsPage follows the DHCP provider", () => {
   });
 });
 
+describe("GroupsPage on narrow screens", () => {
+  function viewport({ wide }: { wide: boolean }) {
+    // jsdom has no matchMedia; give spyOn something to wrap.
+    window.matchMedia ??= (() => ({ matches: false })) as unknown as typeof window.matchMedia;
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({ matches: wide, media: query }) as MediaQueryList);
+    return vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
+  }
+
+  it("scrolls the editor into view each time a group, Guests or New group is picked", async () => {
+    const scroll = viewport({ wide: false });
+    show({ providers: { dhcp: pihole, dns: null }, guests: { enabled: true, pool: false, color: "#4FC3D9", icon: "guest" } });
+    expect(scroll).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: /People/ }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll).toHaveBeenLastCalledWith({ behavior: "smooth", block: "start" });
+    const editor = scroll.mock.contexts[0] as HTMLElement;
+    expect(editor.textContent).toContain("Save changes");
+    expect(editor.className).toContain("scroll-mt-[72px]");
+    await userEvent.click(screen.getByRole("button", { name: /^Guests/ }));
+    await userEvent.click(screen.getByRole("button", { name: "New group" }));
+    expect(scroll).toHaveBeenCalledTimes(3);
+  });
+
+  it("leaves the page where it is when the editor sits beside the list", async () => {
+    const scroll = viewport({ wide: true });
+    show({ providers: { dhcp: pihole, dns: null } });
+    await userEvent.click(screen.getByRole("button", { name: /People/ }));
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeTruthy();
+    expect(scroll).not.toHaveBeenCalled();
+  });
+});
+
 describe("GroupsPage hours inputs", () => {
   it("shows the unit inside the input as a suffix", async () => {
     show({ providers: { dhcp: pihole, dns: null } });

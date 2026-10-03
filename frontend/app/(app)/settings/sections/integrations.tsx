@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { Button, Field, Notice, inputClass } from "@/components/ui";
+import { Button, Field, Notice, SCROLL_TARGET, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
 import { SecretInput } from "@/lib/secret-input";
@@ -41,7 +41,7 @@ export function IntegrationsSection() {
 
   if (!data) {
     return (
-      <div id="integrations">
+      <div id="integrations" className={SCROLL_TARGET}>
         {error ? <Notice tone="error">{error}</Notice> : <p className="text-sm text-muted">Loading…</p>}
       </div>
     );
@@ -78,7 +78,7 @@ export function IntegrationsSection() {
   }
 
   return (
-    <div id="integrations" className="flex flex-col gap-5">
+    <div id="integrations" className={`flex flex-col gap-5 ${SCROLL_TARGET}`}>
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
       <div className="flex flex-col gap-3.5">
         <Heading name="Gotify" ready={data.gotify.ready} />

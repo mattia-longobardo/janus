@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { Button, Field, Notice, inputClass } from "@/components/ui";
+import { Button, Field, Notice, SCROLL_TARGET, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
 import { hasCapability } from "@/lib/provider-status";
@@ -36,7 +36,7 @@ export function ProvidersSection() {
   const [dhcpSaves, setDhcpSaves] = useState(0);
 
   if (!data) {
-    return <div id="providers">{error ? <Notice tone="error">{error}</Notice> : <p className="text-sm text-muted">Loading…</p>}</div>;
+    return <div id="providers" className={SCROLL_TARGET}>{error ? <Notice tone="error">{error}</Notice> : <p className="text-sm text-muted">Loading…</p>}</div>;
   }
 
   async function saved(role: ProviderRole) {
@@ -47,7 +47,7 @@ export function ProvidersSection() {
   }
 
   return (
-    <div id="providers" className="flex flex-col gap-6">
+    <div id="providers" className={`flex flex-col gap-6 ${SCROLL_TARGET}`}>
       {ROWS.map(({ role, title }) => (
         <RoleRow
           key={role === "dns" ? `dns-${dhcpSaves}` : role}

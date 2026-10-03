@@ -2,12 +2,12 @@
 
 import clsx from "clsx";
 import { Plus } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { CompactGroup } from "@/components/compact-group";
 import { HoursRule } from "@/components/hours-rule";
 import { ColorPicker, IconPicker, PALETTE } from "@/components/look-picker";
-import { Button, Card, Field, IconTile, Notice, PageHeader, Segmented, inputClass } from "@/components/ui";
+import { Button, Card, Field, IconTile, Notice, PageHeader, SCROLL_TARGET, Segmented, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
 import { ACCESS_LABELS } from "@/lib/format";
@@ -46,6 +46,8 @@ export default function GroupsPage() {
   const groupsRes = useResource<Group[]>("/groups");
   const devicesRes = useResource<Device[]>("/devices");
   const [selected, setSelected] = useState<number | "new" | "guests" | null>(null);
+  const [opened, setOpened] = useState(0);
+  const editorRef = useRef<HTMLDivElement>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string }>();
   const groups = groupsRes.data ?? [];
   const devices = devicesRes.data ?? [];
@@ -58,13 +60,24 @@ export default function GroupsPage() {
   const guestTile = guestLook(features);
   const guests = guestsRes.data ?? [];
 
+  function open(value: number | "new" | "guests") {
+    setSelected(value);
+    setOpened((n) => n + 1);
+  }
+
+  // Below xl the editor sits under the list, usually off-screen on a phone: bring it into view on every pick.
+  useEffect(() => {
+    if (opened === 0 || window.matchMedia?.("(min-width: 1280px)").matches) return;
+    editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [opened]);
+
   return (
     <>
       <PageHeader
         title="Groups"
         subtitle="people and device categories · each owns an IP range and a default policy"
         actions={
-          <Button variant="primary" onClick={() => setSelected("new")}>
+          <Button variant="primary" onClick={() => open("new")}>
             <Plus className="size-4" aria-hidden />
             New group
           </Button>
@@ -86,7 +99,7 @@ export default function GroupsPage() {
               key={g.id}
               type="button"
               aria-pressed={selected === g.id}
-              onClick={() => setSelected(g.id)}
+              onClick={() => open(g.id)}
               className={clsx(ROW, "w-full border-b border-row py-3 text-left text-text", selected === g.id ? "bg-accent-soft" : "hover:bg-card2")}
             >
               <IconTile Icon={iconFor(g.icon)} color={g.color} size={34} />
@@ -109,7 +122,7 @@ export default function GroupsPage() {
             <button
               type="button"
               aria-pressed={selected === "guests"}
-              onClick={() => setSelected("guests")}
+              onClick={() => open("guests")}
               className={clsx(
                 ROW,
                 "w-full py-3 text-left text-text",
@@ -125,31 +138,33 @@ export default function GroupsPage() {
             </button>
           )}
         </Card>
-        {selected === null ? (
-          <Card className="p-6 text-sm text-muted">Select a group to edit it, or create a new one.</Card>
-        ) : selected === "guests" ? (
-          <GuestEditor
-            guests={guests}
-            onDone={async (text) => {
-              setNotice({ tone: "success", text });
-              setSelected(null);
-              await guestsRes.reload();
-            }}
-            onError={(text) => setNotice({ tone: "error", text })}
-          />
-        ) : (
-          <GroupEditor
-            key={selected}
-            group={current}
-            devices={devices}
-            onDone={async (text) => {
-              setNotice({ tone: "success", text });
-              setSelected(null);
-              await groupsRes.reload();
-            }}
-            onError={(text) => setNotice({ tone: "error", text })}
-          />
-        )}
+        <div ref={editorRef} className={SCROLL_TARGET}>
+          {selected === null ? (
+            <Card className="p-6 text-sm text-muted">Select a group to edit it, or create a new one.</Card>
+          ) : selected === "guests" ? (
+            <GuestEditor
+              guests={guests}
+              onDone={async (text) => {
+                setNotice({ tone: "success", text });
+                setSelected(null);
+                await guestsRes.reload();
+              }}
+              onError={(text) => setNotice({ tone: "error", text })}
+            />
+          ) : (
+            <GroupEditor
+              key={selected}
+              group={current}
+              devices={devices}
+              onDone={async (text) => {
+                setNotice({ tone: "success", text });
+                setSelected(null);
+                await groupsRes.reload();
+              }}
+              onError={(text) => setNotice({ tone: "error", text })}
+            />
+          )}
+        </div>
       </div>
     </>
   );
