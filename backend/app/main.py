@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 
 from app.api import (
     approval,
+    authconfig,
     cutover,
     devices,
     events,
@@ -34,7 +35,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     protected = [Depends(require_internal)]
     for router in (groups.router, devices.router, approval.router, sync.router,
-                   notifications.router, maintenance.router, events.router, intel.router, settings.router,
+                   notifications.router, maintenance.router, events.router, intel.router, settings.router, authconfig.router,
                    map.router, services.router, cutover.router, features.router, internal.router):
         app.include_router(router, dependencies=protected)
     return app

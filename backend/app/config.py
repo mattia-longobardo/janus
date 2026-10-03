@@ -1,5 +1,6 @@
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +46,12 @@ class Settings(BaseSettings):
     scanner_heartbeat_path: str = "/tmp/janus-scanner.heartbeat"
     scan_window_start: str = "08:00"
     scan_window_end: str = "22:00"
+    # --- B --- sign-in. The old Authentik env names keep working next to the JANUS_ ones.
+    allowed_emails: str = ""
+    oidc_id: str = Field("", validation_alias=AliasChoices("JANUS_OIDC_ID", "AUTH_AUTHENTIK_ID"))
+    oidc_secret: str = Field("", validation_alias=AliasChoices("JANUS_OIDC_SECRET", "AUTH_AUTHENTIK_SECRET"))
+    oidc_issuer: str = Field("", validation_alias=AliasChoices("JANUS_OIDC_ISSUER", "AUTH_AUTHENTIK_ISSUER"))
+    oidc_name: str = Field("Authentik", validation_alias=AliasChoices("JANUS_OIDC_NAME"))
 
 
 settings = Settings()
