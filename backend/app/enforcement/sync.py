@@ -53,4 +53,8 @@ def apply_sync(db: Session, store: ReservationStore, kind: str, policies: frozen
             record_event(db, "sync.applied", None, {"added": added, "removed": removed})
         if diff.failed:
             record_event(db, "sync.failed", None, {"failed": list(diff.failed)})
+    # Optional hook for provider settings that follow the reservations (e.g. Pi-hole's guest dhcp-range).
+    after_sync = getattr(store, "after_sync", None)
+    if after_sync is not None:
+        after_sync(db)
     return diff

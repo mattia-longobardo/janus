@@ -4,15 +4,30 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.netconfig import load_netconfig
 from app.notify.config import channel_ready
+from app.providers import runtime
+from app.providers.base import Policy, Role
+from app.providers.config import load_role
 from app.providers.runtime import providers_feature
 
 log = logging.getLogger(__name__)
+
+
+def guests_feature(db: Session) -> dict[str, Any]:
+    """Guests work with a DHCP provider that supports them, or with none (Janus only keeps the list). Without a
+    pool Pi-hole guests would get quarantine addresses, hence no router: the page warns when `pool` is false."""
+    return {
+        "enabled": Policy.GUEST in runtime.policies(db) or load_role(db, Role.DHCP) is None,
+        "pool": bool(load_netconfig(db).guest_pool()),
+    }
+
 
 # One entry per optional area of the web app; the frontend hides what is off.
 FEATURE_PROVIDERS: dict[str, Callable[[Session], dict[str, Any]]] = {
     "notify": channel_ready,
     "providers": providers_feature,
+    "guests": guests_feature,
 }
 
 

@@ -1,5 +1,5 @@
 from app.providers.base import CurrentEntry, Policy, Reservation
-from app.providers.pihole.codec import LAN_ONLY_TAG, parse, render
+from app.providers.pihole.codec import GUEST_TAG, LAN_ONLY_TAG, parse, render
 
 PLAIN = Reservation("00:00:5E:00:53:10", "laptop-a", "192.168.1.10")
 LAN = Reservation("00:00:5E:00:53:20", "plug", "192.168.1.120", Policy.LAN_ONLY)
@@ -62,3 +62,24 @@ def test_diff_refuses_an_addition_on_the_ip_of_a_swapped_line():
     assert diff.to_add == [] and diff.unmanaged == current
     assert diff.failed == ["00:00:5e:00:53:10,192.168.1.5,laptop-a,24h: would duplicate "
                            "00:00:5e:00:53:99,nas,192.168.1.5,24h, skipped"]
+
+
+def test_guest_line_has_no_ip():
+    assert GUEST_TAG == "set:guest"
+    g = Reservation("00:00:5E:00:53:60", "anna-phone", None, Policy.GUEST)
+    assert render(g, "24h") == "00:00:5e:00:53:60,set:guest,anna-phone,24h"
+    e = parse("00:00:5e:00:53:60,set:guest,anna-phone,24h", "24h")
+    assert e.reservation == g and e.ip is None and e.canonical
+    assert e.mac == "00:00:5E:00:53:60" and e.key == e.display == "00:00:5e:00:53:60,set:guest,anna-phone,24h"
+
+
+def test_guest_line_with_another_lease_is_rewritten():
+    stale = parse("00:00:5E:00:53:60, set:guest, anna-phone, 12h", "24h")
+    assert stale.reservation == Reservation("00:00:5E:00:53:60", "anna-phone", None, Policy.GUEST)
+    assert stale.canonical is False
+
+
+def test_guest_tag_with_an_address_is_not_a_guest_reservation():
+    # Janus never writes a guest line with an IP: such a line is someone else's and stays unmanaged.
+    odd = parse("00:00:5e:00:53:60,set:guest,192.168.1.210,anna-phone,24h", "24h")
+    assert odd.reservation is None and (odd.mac, odd.ip) == ("00:00:5E:00:53:60", "192.168.1.210")

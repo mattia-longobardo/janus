@@ -4,51 +4,16 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import respx
 
+from app.config import settings
 from app.models import Access, Device, Event, Group
-from app.providers.pihole.client import PiholeError
 from app.providers.pihole.cutover import QUARANTINE_LINES, PiholeAdmin, cutover, preflight, rollback, take_backup
 from app.providers.pihole.provider import PiholeConfig
 from app.syncmode import load_sync_mode
+from tests.fakes import FakeAdmin
 
 NOW = datetime(2026, 10, 1, 20, 0, tzinfo=UTC)
 BASE = "http://pihole.test"
 CFG = PiholeConfig(url="http://192.168.1.220:1000", password="pw", lease="24h")
-
-
-class FakeAdmin:
-    def __init__(self, *, lines=QUARANTINE_LINES, app_sudo=False, fail=False):
-        self.config = {"dhcp": {"active": False}, "misc": {"dnsmasq_lines": ["address=/local/192.168.1.220", *lines]},
-                       "webserver": {"api": {"app_sudo": app_sudo}}}
-        self.hosts: list[str] = []
-        self.patches: list[dict] = []
-        self.fail = fail
-
-    def get_config(self, path):
-        if self.fail:
-            raise PiholeError("Pi-hole unreachable: boom")
-        node = self.config
-        for part in path.split("/"):
-            node = node[part]
-        top = path.split("/")[0]
-        out = node
-        for part in reversed(path.split("/")[1:]):
-            out = {part: out}
-        return {top: out} if "/" in path else {top: node}
-
-    def patch_config(self, config):
-        self.patches.append(config)
-
-    def teleporter(self):
-        return b"PK\x03\x04zip"
-
-    def list_hosts(self):
-        return list(self.hosts)
-
-    def add_host(self, line):
-        self.hosts.append(line)
-
-    def remove_host(self, line):
-        self.hosts.remove(line)
 
 
 @pytest.fixture
@@ -167,3 +132,47 @@ def test_admin_client_http_calls(respx_mock):
         admin.patch_config({"dhcp": {"active": True}})
         assert admin.teleporter() == b"PK\x03\x04"
     assert json.loads(patch.calls[0].request.content) == {"config": {"dhcp": {"active": True}}}
+
+
+GUEST_LINE = "dhcp-range=tag:guest,192.168.1.200,192.168.1.229,24h"
+
+
+@pytest.fixture
+def pool(monkeypatch):
+    for name, value in {"subnet": "192.168.1.0/24", "gateway": "192.168.1.1", "quarantine_start": "192.168.1.240",
+                        "quarantine_end": "192.168.1.254", "guest_start": "192.168.1.200",
+                        "guest_end": "192.168.1.229"}.items():
+        monkeypatch.setattr(settings, name, value)
+
+
+def _guest_check(report):
+    [check] = [c for c in report.checks if c.name == "guest_rules"]
+    return check
+
+
+def test_guest_rules_ok_without_a_pool(db, seeded, monkeypatch):
+    monkeypatch.setattr(settings, "guest_start", "")
+    monkeypatch.setattr(settings, "guest_end", "")
+    assert _guest_check(preflight(db, FakeAdmin(), CFG, dhcp_kind="pihole", now=NOW)).ok is True
+
+
+def test_guest_rules_with_a_pool(db, seeded, pool):
+    present = _guest_check(preflight(db, FakeAdmin(lines=(*QUARANTINE_LINES, GUEST_LINE)), CFG, dhcp_kind="pihole"))
+    assert present.ok is True
+    stale = (*QUARANTINE_LINES, "dhcp-range=tag:guest,192.168.1.100,192.168.1.110,24h")
+    take_backup(db, FakeAdmin())
+    for lines in (QUARANTINE_LINES, stale):
+        admin = FakeAdmin(lines=lines)
+        report = preflight(db, admin, CFG, dhcp_kind="pihole", admin=admin)
+        # Not blocking: the cutover itself writes the guest range once it has write access.
+        check = _guest_check(report)
+        assert (check.ok, check.blocking, report.ready) == (None, False, True)
+        assert GUEST_LINE in check.detail
+
+
+def test_cutover_writes_the_guest_range(db, seeded, pool):
+    admin = FakeAdmin()
+    take_backup(db, admin)
+    cutover(db, admin, CFG, dhcp_kind="pihole")
+    assert admin.config["misc"]["dnsmasq_lines"] == ["address=/local/192.168.1.220", *QUARANTINE_LINES, GUEST_LINE]
+    assert _guest_check(preflight(db, admin, CFG, dhcp_kind="pihole")).ok is True

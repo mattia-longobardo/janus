@@ -51,7 +51,7 @@ def test_role_ref_only_exposes_capabilities_of_that_role(db):
     dhcp, dns = role_ref(db, Role.DHCP), role_ref(db, Role.DNS)
     assert {"reservations", "quarantine", "dhcp_server"} <= set(dhcp["capabilities"])
     assert set(dns["capabilities"]) == {"dns_query_log", "dns_probe"} and dns["shared"] is True
-    assert dhcp["policies"] == ["full", "lan_only"] and "policies" not in dns
+    assert dhcp["policies"] == ["full", "guest", "lan_only"] and "policies" not in dns
 
 
 def test_role_ref_reports_down_since(db):
@@ -173,7 +173,7 @@ def test_runtime_capabilities_and_policies(db):
     from app.providers import runtime
     assert runtime.has_capability(db, Role.DHCP, Capability.QUARANTINE)
     assert not runtime.has_capability(db, Role.DNS, Capability.QUARANTINE)
-    assert runtime.policies(db) == {Policy.FULL, Policy.LAN_ONLY}
+    assert runtime.policies(db) == {Policy.FULL, Policy.LAN_ONLY, Policy.GUEST}
     pc.save_role(db, Role.DHCP, None, None)
     assert runtime.policies(db) == frozenset() and runtime.provider_factory(db, Role.DHCP) is None
 

@@ -128,6 +128,14 @@ class PiholeClient:
         queries = self._field(body, "/api/queries", "queries")
         return queries, int(body.get("recordsFiltered", len(queries)))
 
+    def get_config(self, path: str) -> dict[str, Any]:
+        url = f"/api/config/{path}"
+        return self._field(self._json("GET", url), url, "config")
+
+    def patch_config(self, config: dict[str, Any]) -> None:
+        """Refused (HTTP 403) for an app password unless Pi-hole's `webserver.api.app_sudo` is on."""
+        self._request("PATCH", "/api/config", json={"config": config})
+
     def revoke_lease(self, ip: str) -> None:
         self._request("DELETE", f"/api/dhcp/leases/{ip}")
 

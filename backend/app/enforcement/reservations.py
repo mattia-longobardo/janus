@@ -44,6 +44,10 @@ def desired_reservations(db: Session, policies: frozenset[Policy]) -> set[Reserv
             )
         )
         desired |= {Reservation(d.mac, d.hostname, d.static_ip, wanted[d.access]) for d in rows}
+    if Policy.GUEST in policies:
+        # No address: the provider leases one from its guest pool.
+        rows = db.scalars(select(Device).where(Device.mac.is_not(None), Device.access == Access.guest))
+        desired |= {Reservation(d.mac, d.hostname, None, Policy.GUEST) for d in rows}
     if Policy.BLOCKED in policies:
         rows = db.scalars(select(Device).where(Device.mac.is_not(None), Device.access == Access.blocked))
         desired |= {Reservation(d.mac, d.hostname, None, Policy.BLOCKED) for d in rows}

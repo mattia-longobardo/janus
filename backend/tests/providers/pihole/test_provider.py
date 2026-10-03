@@ -2,7 +2,8 @@ import pytest
 
 from app.config import settings
 from app.enforcement.sync import apply_sync, plan_sync
-from app.models import Access, Device, Group, Setting
+from app.models import Access, Device, Event, Group, Setting
+from app.net.ipplan import IpRange
 from app.providers import registry
 from app.providers.base import (
     Capability,
@@ -19,7 +20,7 @@ from app.providers.pihole import SPEC, open_pihole
 from app.providers.pihole.client import PiholeClient, PiholeError, shared_session
 from app.providers.pihole.codec import parse
 from app.providers.pihole.provider import PiholeConfig, PiholeProvider
-from tests.fakes import FakePihole
+from tests.fakes import FakeAdmin, FakePihole
 
 CFG = PiholeConfig(url="http://192.168.1.220:1000", password="pw", lease="24h")
 
@@ -42,7 +43,7 @@ def test_spec_declares_what_the_provider_implements():
     p = PiholeProvider(FakePihole(), CFG)
     for proto in (ReservationStore, LeaseControl, DnsQueryLog, DnsProbe, HealthCheck):
         assert isinstance(p, proto)
-    assert Capability.QUARANTINE in SPEC.capabilities and SPEC.policies == {Policy.FULL, Policy.LAN_ONLY}
+    assert Capability.QUARANTINE in SPEC.capabilities and SPEC.policies == {Policy.FULL, Policy.LAN_ONLY, Policy.GUEST}
     assert SPEC.roles == {Role.DHCP, Role.DNS} and SPEC.provider_class is PiholeProvider
     assert SPEC.config_model is PiholeConfig and SPEC.secret_fields == {"password"}
     assert registry.get_spec("pihole") is SPEC
@@ -167,3 +168,76 @@ def test_open_pihole_shares_one_login_per_url():
     client = provider.client
     assert isinstance(client, PiholeClient) and client._shared is shared_session("http://192.168.1.220:1000")
     client.close()
+
+
+POOL = IpRange.parse("192.168.1.200", "192.168.1.229")
+OTHERS = ["dhcp-option=tag:!known,option:router", "address=/x.lan/10.0.0.9"]
+
+
+@pytest.fixture
+def pool(monkeypatch):
+    for name, value in {"subnet": "192.168.1.0/24", "gateway": "192.168.1.1", "quarantine_start": "192.168.1.240",
+                        "quarantine_end": "192.168.1.254", "guest_start": "192.168.1.200",
+                        "guest_end": "192.168.1.229"}.items():
+        monkeypatch.setattr(settings, name, value)
+
+
+def test_guest_range_lines_are_managed_without_touching_others():
+    admin = FakeAdmin(config={"misc": {"dnsmasq_lines": list(OTHERS)}})
+    p = PiholeProvider(admin, CFG)
+    p.ensure_guest_range(POOL, "24h")
+    lines = admin.config["misc"]["dnsmasq_lines"]
+    assert lines == [*OTHERS, "dhcp-range=tag:guest,192.168.1.200,192.168.1.229,24h"]
+    p.ensure_guest_range(None, "24h")
+    assert admin.config["misc"]["dnsmasq_lines"] == OTHERS
+
+
+def test_guest_range_is_replaced_and_unchanged_lines_are_not_patched():
+    admin = FakeAdmin(config={"misc": {"dnsmasq_lines": [OTHERS[0], "dhcp-range=tag:guest,192.168.1.100,192.168.1.110,12h",
+                                                         OTHERS[1]]}})
+    p = PiholeProvider(admin, CFG)
+    p.ensure_guest_range(POOL, "24h")
+    assert admin.config["misc"]["dnsmasq_lines"] == [*OTHERS, "dhcp-range=tag:guest,192.168.1.200,192.168.1.229,24h"]
+    patches = len(admin.patches)
+    p.ensure_guest_range(POOL, "24h")
+    p.ensure_guest_range(None, "24h")
+    p.ensure_guest_range(None, "24h")
+    assert len(admin.patches) == patches + 1
+
+
+def test_guest_reservation_round_trip_through_apply(db, pool):
+    db.add(Device(mac="00:00:5E:00:53:60", name="Anna", hostname="anna-phone", access=Access.guest))
+    db.flush()
+    fake = FakePihole()
+    apply_sync(db, PiholeProvider(fake, CFG), "pihole", SPEC.policies)
+    assert fake.hosts == ["00:00:5e:00:53:60,set:guest,anna-phone,24h"]
+    assert fake.config["misc"]["dnsmasq_lines"][-1] == "dhcp-range=tag:guest,192.168.1.200,192.168.1.229,24h"
+    store = PiholeProvider(fake, CFG)
+    assert plan_sync(db, store, "pihole", SPEC.policies).empty
+
+
+def test_after_sync_uses_the_configured_lease(db, pool):
+    fake = FakePihole()
+    PiholeProvider(fake, PiholeConfig(url=CFG.url, password="pw", lease="12h")).after_sync(db)
+    assert fake.config["misc"]["dnsmasq_lines"][-1] == "dhcp-range=tag:guest,192.168.1.200,192.168.1.229,12h"
+
+
+def test_plan_never_touches_the_guest_range(db, pool):
+    fake = FakePihole()
+    plan_sync(db, PiholeProvider(fake, CFG), "pihole", SPEC.policies)
+    assert fake.patches == []
+
+
+def test_guest_range_without_app_sudo_is_a_sync_failure_not_a_crash(db, pool):
+    fake = FakePihole()
+    fake.patch_status = 403
+    apply_sync(db, PiholeProvider(fake, CFG), "pihole", SPEC.policies)
+    failed = [e.payload for e in db.query(Event).filter(Event.type == "sync.failed")]
+    assert failed == [{"failed": ["guest range needs app_sudo (run the cutover)"]}]
+
+
+def test_guest_range_unreachable_pihole_still_raises(db, pool):
+    fake = FakePihole()
+    fake.fail_config = True
+    with pytest.raises(PiholeError):
+        PiholeProvider(fake, CFG).after_sync(db)

@@ -72,6 +72,9 @@ class ProviderError(RuntimeError):
 
 @runtime_checkable
 class ReservationStore(Protocol):
+    """A store may also define `after_sync(db) -> None`: apply_sync calls it, when present, after writing the
+    reservations (looked up with getattr, so it is optional)."""
+
     def list_reservations(self) -> list[CurrentEntry]: ...
     def add_reservation(self, reservation: Reservation) -> None: ...
     def remove_reservation(self, entry: CurrentEntry) -> None: ...

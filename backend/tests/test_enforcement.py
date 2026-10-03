@@ -309,3 +309,28 @@ def test_recorded_written_macs_replace_first_run_recognition(db):
     db.flush()
     diff = plan_sync(db, store, "fake", ALL)
     assert diff.to_remove == [] and [e.mac for e in diff.unmanaged] == ["00:00:5E:00:53:44"]
+
+
+def test_guests_become_guest_reservations_only_when_supported(db):
+    db.add(Device(mac="00:00:5E:00:53:61", name="Anna", hostname="anna", access=Access.guest))
+    db.flush()
+    assert Reservation("00:00:5E:00:53:61", "anna", None, Policy.GUEST) in desired_reservations(db, ALL)
+    assert desired_reservations(db, frozenset({Policy.FULL})) == set()
+
+
+class _HookedStore(FakeStore):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hooked = 0
+
+    def after_sync(self, db):
+        self.hooked += 1
+
+
+def test_after_sync_hook_runs_on_apply_only(db):
+    store = _HookedStore()
+    plan_sync(db, store, "fake", ALL)
+    assert store.hooked == 0
+    apply_sync(db, store, "fake", ALL)
+    assert store.hooked == 1
+    apply_sync(db, FakeStore(), "fake", ALL)   # stores without the hook are fine

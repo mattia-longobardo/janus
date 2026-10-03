@@ -14,7 +14,14 @@ from app.enforcement.sync import apply_sync, plan_sync
 from app.models import Access, Device
 from app.netconfig import NetConfig, load_netconfig
 from app.providers.pihole.client import PiholeClient, PiholeError
-from app.providers.pihole.provider import KIND, POLICIES, PiholeConfig, PiholeProvider
+from app.providers.pihole.provider import (
+    GUEST_RANGE_PREFIX,
+    KIND,
+    POLICIES,
+    PiholeConfig,
+    PiholeProvider,
+    guest_range_line,
+)
 from app.syncmode import load_sync_mode, set_sync_mode
 
 QUARANTINE_LINES = ("dhcp-option=tag:!known,option:router", "dhcp-option=tag:lanonly,option:router")
@@ -27,13 +34,7 @@ def backup_dir() -> Path:
 
 
 class PiholeAdmin(PiholeClient):
-    """Pi-hole client with the config and teleporter calls needed for the DHCP cutover."""
-
-    def get_config(self, path: str) -> dict[str, Any]:
-        return self._request("GET", f"/api/config/{path}").json()["config"]
-
-    def patch_config(self, config: dict[str, Any]) -> None:
-        self._request("PATCH", "/api/config", json={"config": config})
+    """Pi-hole client with the teleporter call needed for the DHCP cutover backup."""
 
     def teleporter(self) -> bytes:
         return self._request("GET", "/api/teleporter").content
@@ -93,6 +94,17 @@ def _range_check(net: NetConfig) -> Check:
                  if ok else "quarantine pool is not a valid range inside the subnet")
 
 
+def _guest_check(net: NetConfig, lines: list[str], lease: str) -> Check:
+    """Not blocking: the cutover writes the guest range itself (apply_sync's after_sync) once it can write."""
+    pool = net.guest_pool()
+    if pool is None:
+        return Check("guest_rules", True, "no guest pool defined", blocking=False)
+    wanted = guest_range_line(pool, lease)
+    if [line.strip() for line in lines if line.strip().startswith(GUEST_RANGE_PREFIX)] == [wanted]:
+        return Check("guest_rules", True, f"guest range present: {wanted}", blocking=False)
+    return Check("guest_rules", None, f"the cutover will write the guest range: {wanted}", blocking=False)
+
+
 def _dhcp_role_check(dhcp_kind: str | None) -> Check:
     if dhcp_kind == KIND:
         return Check("pihole_is_dhcp_provider", True, "Pi-hole holds the DHCP role")
@@ -135,6 +147,7 @@ def preflight(db: Session, client: PiholeAdmin, cfg: PiholeConfig, *, dhcp_kind:
     missing = [line for line in QUARANTINE_LINES if line not in lines]
     report.checks.append(Check("quarantine_rules", not missing, "dnsmasq quarantine tags present" if not missing
                                else f"Pi-hole is missing: {'; '.join(missing)} (recreate pihole with the updated compose)"))
+    report.checks.append(_guest_check(net, lines, cfg.lease))
     report.checks.append(_range_check(net))
     report.checks.extend(_device_checks(db, net.gateway))
     try:

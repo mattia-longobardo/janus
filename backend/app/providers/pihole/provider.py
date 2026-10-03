@@ -2,14 +2,20 @@ from typing import Any, Protocol, Self
 from urllib.parse import urlparse
 
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
-from app.providers.base import CurrentEntry, DnsQuery, Policy, Reservation
+from app.events import record_event
+from app.net.ipplan import IpRange
+from app.netconfig import load_netconfig
+from app.providers.base import CurrentEntry, DnsQuery, Policy, ProviderError, Reservation
 from app.providers.pihole.codec import parse, render
 from app.providers.pihole.dns import normalize
 
 KIND = "pihole"
 # Never BLOCKED: a blocked device simply has no dhcp-host line and lands in the quarantine pool.
-POLICIES = frozenset({Policy.FULL, Policy.LAN_ONLY})
+POLICIES = frozenset({Policy.FULL, Policy.LAN_ONLY, Policy.GUEST})
+# Janus' own line in misc.dnsmasq_lines, recognised by this prefix (no comment marker: ruling R28).
+GUEST_RANGE_PREFIX = "dhcp-range=tag:guest,"
 DISK_AFTER_S = 24 * 3600   # Pi-hole keeps the last 24 h in memory; older queries need the on-disk database
 
 
@@ -26,6 +32,8 @@ class PiholeApi(Protocol):
     def add_host(self, line: str) -> None: ...
     def remove_host(self, line: str) -> None: ...
     def revoke_lease(self, ip: str) -> None: ...
+    def get_config(self, path: str) -> dict[str, Any]: ...
+    def patch_config(self, config: dict[str, Any]) -> None: ...
     def list_queries(self, client_ip: str, since: int, until: int, length: int = 5000,
                      disk: bool = False) -> tuple[list[dict[str, Any]], int]: ...
 
@@ -55,6 +63,28 @@ class PiholeProvider:
     def describe(self, reservation: Reservation) -> str:
         return render(reservation, self.config.lease)
 
+    def after_sync(self, db: Session) -> None:
+        """Keep the guest dhcp-range in step with the guest pool. Pi-hole refuses the write for an app password
+        until the cutover turns on app_sudo: that is a sync failure to report, not a crash."""
+        try:
+            self.ensure_guest_range(load_netconfig(db).guest_pool(), self.config.lease)
+        except ProviderError as exc:
+            if not exc.rejected:
+                raise
+            reason = "guest range needs app_sudo (run the cutover)" if exc.status == 403 else f"guest range: {exc}"
+            record_event(db, "sync.failed", None, {"failed": [reason]})
+
+    def ensure_guest_range(self, pool: IpRange | None, lease: str) -> None:
+        """Write Janus' `dhcp-range=tag:guest,...` line to misc.dnsmasq_lines (or drop it without a pool). Lines
+        without the prefix are never touched; nothing is written when the line is already right."""
+        lines = self.client.get_config("misc/dnsmasq_lines")["misc"]["dnsmasq_lines"]
+        own = [line for line in lines if line.strip().startswith(GUEST_RANGE_PREFIX)]
+        wanted = [guest_range_line(pool, lease)] if pool is not None else []
+        if own == wanted:
+            return
+        others = [line for line in lines if line not in own]
+        self.client.patch_config({"misc": {"dnsmasq_lines": others + wanted}})
+
     # LeaseControl
     def force_renew(self, mac: str, ip: str | None) -> None:
         if ip:
@@ -72,3 +102,7 @@ class PiholeProvider:
     # HealthCheck
     def check(self) -> str:
         return f"{len(self.client.list_hosts())} reservations"
+
+
+def guest_range_line(pool: IpRange, lease: str) -> str:
+    return f"{GUEST_RANGE_PREFIX}{pool.start},{pool.end},{lease}"
