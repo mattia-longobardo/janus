@@ -18,7 +18,7 @@ export const NAV: NavItem[] = [
   { href: "/pending", label: "Pending", icon: Clock3, count: "pending" },
   { href: "/ip-plan", label: "IP plan", icon: Grid2x2 },
   { href: "/groups", label: "Groups", icon: Layers },
-  { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/notifications", label: "Notifications", icon: Bell, requires: (f) => Boolean(f.notify?.email || f.notify?.gotify) },
   { href: "/events", label: "Event log", icon: NotepadText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

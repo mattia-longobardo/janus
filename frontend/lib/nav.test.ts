@@ -17,8 +17,13 @@ describe("visibleNav", () => {
   });
 
   it("places extra items before Notifications and keeps Settings last", () => {
-    const hrefs = visibleNav({ guests: { enabled: true } }, [gated]).map((i) => i.href);
+    const hrefs = visibleNav({ guests: { enabled: true }, notify: { email: true, gotify: false } }, [gated]).map((i) => i.href);
     expect(hrefs.indexOf("/gated")).toBeLessThan(hrefs.indexOf("/notifications"));
     expect(hrefs.at(-1)).toBe("/settings");
+  });
+
+  it("hides Notifications when no channel is ready", () => {
+    expect(visibleNav({ notify: { email: false, gotify: false } }).some((i) => i.href === "/notifications")).toBe(false);
+    expect(visibleNav({ notify: { email: false, gotify: true } }).some((i) => i.href === "/notifications")).toBe(true);
   });
 });
