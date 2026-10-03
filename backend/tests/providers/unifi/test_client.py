@@ -161,3 +161,13 @@ def test_unreachable_after_login_is_not_a_rejection():
     with pytest.raises(UnifiError) as exc, UnifiClient(BASE, username="janus", password="pw") as c:
         c.list_known()
     assert exc.value.status is None
+
+
+@respx.mock
+def test_update_user_puts_only_the_given_fields():
+    respx.post(f"{BASE}/api/auth/login").mock(return_value=_login_ok())
+    put = respx.put(f"{P}/rest/user/u1").mock(return_value=httpx.Response(200, json=OK))
+    with UnifiClient(BASE, username="janus", password="pw") as c:
+        c.update_user("u1", {"note": "janus:guest", "noted": True})
+    assert json.loads(put.calls[0].request.read()) == {"note": "janus:guest", "noted": True}
+    assert put.calls[0].request.headers["x-csrf-token"] == "c1"

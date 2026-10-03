@@ -61,5 +61,10 @@ class Settings(BaseSettings):
     guest_end: str = ""
     guests_interval_s: int = 60
 
+    # --- D --- UniFi Network controller (classic API): console URL and a local admin account.
+    unifi_url: str = ""
+    unifi_username: str = ""
+    unifi_password: str = ""
+
 
 settings = Settings()

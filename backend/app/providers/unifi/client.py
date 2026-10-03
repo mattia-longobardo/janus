@@ -123,9 +123,13 @@ class UnifiClient:
             raise UnifiError(f"client {mac_lower} not found after creating it")
         return found
 
+    def update_user(self, user_id: str, fields: dict[str, Any]) -> None:
+        """Change only the given fields of a known client (`name`, `note`/`noted`, ...)."""
+        self._json("PUT", f"rest/user/{user_id}", fields)
+
     def set_fixed_ip(self, user_id: str, *, ip: str | None, network_id: str | None, name: str) -> None:
         body = {"use_fixedip": ip is not None, "fixed_ip": ip or "", "network_id": network_id or "", "name": name}
-        self._json("PUT", f"rest/user/{user_id}", body)
+        self.update_user(user_id, body)
 
     def stamgr(self, cmd: Literal["block-sta", "unblock-sta", "kick-sta"], mac: str) -> None:
         self._json("POST", "cmd/stamgr", {"cmd": cmd, "mac": mac.lower()})
