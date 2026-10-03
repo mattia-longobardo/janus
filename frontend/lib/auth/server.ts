@@ -115,3 +115,15 @@ export async function getAllowedSession(headers: Headers): Promise<Session | nul
   if (!session) return null;
   return isUserAllowed(session.user, cfg.allowed_emails) ? session : null;
 }
+
+const HAS_USERS_TTL_MS = 10_000;
+let hasUsersSince: number | null = null;
+
+/** Whether any user exists yet; once true it is cached for 10 s (it can only turn true -> false by wiping the DB). */
+export async function getHasUsers(): Promise<boolean> {
+  if (hasUsersSince !== null && Date.now() - hasUsersSince < HAS_USERS_TTL_MS) return true;
+  const { rows } = await pool.query<{ exists: boolean }>('SELECT EXISTS (SELECT 1 FROM auth."user") AS "exists"');
+  const exists = rows[0]?.exists === true;
+  hasUsersSince = exists ? Date.now() : null;
+  return exists;
+}

@@ -1,15 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { getAllowedSession } from "@/lib/auth/server";
+import { getAllowedSession, getHasUsers } from "@/lib/auth/server";
+import { decide } from "@/lib/auth/session-guard";
 
 export async function proxy(req: NextRequest) {
-  if (await getAllowedSession(req.headers)) return NextResponse.next();
-  if (req.nextUrl.pathname.startsWith("/api/")) {
-    return NextResponse.json({ detail: "not signed in" }, { status: 401 });
-  }
-  const login = new URL("/login", req.nextUrl.origin);
-  login.searchParams.set("callbackUrl", `${req.nextUrl.pathname}${req.nextUrl.search}`);
-  return NextResponse.redirect(login);
+  const path = `${req.nextUrl.pathname}${req.nextUrl.search}`;
+  const result = decide(path, Boolean(await getAllowedSession(req.headers)), await getHasUsers());
+  if (result.kind === "next") return NextResponse.next();
+  if (result.kind === "json401") return NextResponse.json({ detail: "not signed in" }, { status: 401 });
+  return NextResponse.redirect(new URL(result.to, req.nextUrl.origin));
 }
 
 export const config = {
