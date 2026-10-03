@@ -50,6 +50,12 @@ import { useResource } from "@/lib/use-resource";
 
 const LAYOUT_VERSION = 3;
 const FIT = { padding: { top: "96px", right: "24px", bottom: "72px", left: "24px" } } as const;
+// Phones keep only the zoom row inside the canvas (stats, legend and uplink picker sit outside it), so the graph can use nearly all of it.
+const FIT_PHONE = { padding: { top: "56px", right: "12px", bottom: "12px", left: "12px" } } as const;
+
+function fitOptions() {
+  return typeof window !== "undefined" && window.matchMedia?.("(max-width: 639px)").matches ? FIT_PHONE : FIT;
+}
 type DeviceData = { device: Device; groups: Group[]; showIp: boolean; w: number; h: number; gateway: boolean };
 type BoxData = { label: string; color: string; range: string; count: number; pending: boolean };
 type ModemData = { w: number; h: number };
@@ -183,7 +189,7 @@ function MapCanvas() {
   const [positions, setPositions] = useState<Record<string, Point>>({});
   const [dirty, setDirty] = useState(false);
   const [showIp, setShowIp] = useState(true);
-  const [linkKind, setLinkKind] = useState<"wired" | "wifi">("wired");
+  const [linkKind, setLinkKind] = useState<LinkKind>("wired");
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string }>();
   const groups = useMemo(() => groupsRes.data ?? [], [groupsRes.data]);
   const devices = useMemo(() => (devicesRes.data ?? []).filter((d) => d.access !== "blocked"), [devicesRes.data]);
@@ -204,7 +210,7 @@ function MapCanvas() {
   useEffect(() => {
     if (fitted || Object.keys(positions).length === 0) return;
     const id = window.setTimeout(() => {
-      void flow.fitView(FIT);
+      void flow.fitView(fitOptions());
       setFitted(true);
     }, 80);
     return () => window.clearTimeout(id);
@@ -360,7 +366,7 @@ function MapCanvas() {
     await api.put("/map/positions", devices.filter((d) => next[d.id]).map((d) => ({ device_id: d.id, ...next[d.id] })));
     setDirty(false);
     await mapRes.reload();
-    window.setTimeout(() => void flow.fitView(FIT), 80);
+    window.setTimeout(() => void flow.fitView(fitOptions()), 80);
   }
 
   async function openDevice(node: Node) {
@@ -372,7 +378,7 @@ function MapCanvas() {
   function arrange() {
     setPositions(autoLayout(devices, groups, gatewayIp, links));
     setDirty(true);
-    window.setTimeout(() => void flow.fitView(FIT), 50);
+    window.setTimeout(() => void flow.fitView(fitOptions()), 50);
   }
 
   async function save() {
@@ -400,6 +406,7 @@ function MapCanvas() {
   const online = devices.filter((d) => d.online && d.access !== "pending").length;
   const pending = devices.filter((d) => d.access === "pending").length;
   const offline = devices.filter((d) => !d.online && d.access !== "pending").length;
+  const counts = { total: devices.length, online, offline, pending };
 
   return (
     <>
@@ -421,8 +428,13 @@ function MapCanvas() {
       />
       {message && <Notice tone={message.tone}>{message.text}</Notice>}
       {(devicesRes.error || mapRes.error) && <Notice tone="error">{devicesRes.error ?? mapRes.error}</Notice>}
+      {/* Phones show the stats and legend above the canvas instead of over it. */}
+      <div className="mb-3 grid grid-cols-2 gap-3 sm:hidden">
+        <MapStats counts={counts} className="grid" />
+        <MapLegend className="flex" />
+      </div>
       <div
-        className="relative h-[calc(100dvh-190px)] min-h-[560px] overflow-hidden rounded-[14px] border border-line"
+        className="relative h-[70dvh] min-h-[420px] overflow-hidden rounded-[14px] border border-line sm:h-[calc(100dvh-190px)] sm:min-h-[560px]"
         style={{ backgroundColor: "var(--canvas)" }}
       >
         <ReactFlow
@@ -439,7 +451,7 @@ function MapCanvas() {
           connectionLineStyle={{ stroke: linkKind === "wifi" ? "var(--ok)" : "var(--accent)", strokeWidth: 1.5, strokeDasharray: linkKind === "wifi" ? "5 4" : undefined }}
           colorMode={theme}
           fitView
-          fitViewOptions={FIT}
+          fitViewOptions={fitOptions()}
           minZoom={0.2}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
@@ -448,12 +460,12 @@ function MapCanvas() {
           <Background variant={BackgroundVariant.Dots} gap={18} size={1.2} color="var(--dotgrid)" />
         </ReactFlow>
 
-        <div className="absolute left-4 top-4 z-10 flex items-start gap-2.5">
-          <div className="flex flex-col gap-1.5">
+        <div className="absolute left-3 top-3 z-10 flex items-start gap-2.5 sm:left-4 sm:top-4">
+          <div className="flex gap-1.5 sm:flex-col">
             {[
               { label: "Zoom in", Icon: Plus, run: () => void flow.zoomIn() },
               { label: "Zoom out", Icon: Minus, run: () => void flow.zoomOut() },
-              { label: "Fit to screen", Icon: Maximize, run: () => void flow.fitView(FIT) },
+              { label: "Fit to screen", Icon: Maximize, run: () => void flow.fitView(fitOptions()) },
             ].map(({ label, Icon, run }) => (
               <button
                 key={label}
@@ -461,71 +473,91 @@ function MapCanvas() {
                 aria-label={label}
                 title={label}
                 onClick={run}
-                className="flex size-10 items-center justify-center rounded-lg border border-line2 bg-card text-text"
+                className="flex size-9 items-center justify-center rounded-lg border border-line2 bg-card text-text sm:size-10"
               >
                 <Icon className="size-4" />
               </button>
             ))}
           </div>
-          <dl className="grid grid-cols-[auto_auto] gap-x-[22px] gap-y-1 rounded-[14px] border border-line bg-card px-3.5 py-3 text-[13px]">
-            <dt className="text-muted">Total</dt>
-            <dd className="font-mono">{devices.length}</dd>
-            <dt className="text-ok">Online</dt>
-            <dd className="font-mono">{online}</dd>
-            <dt className="text-muted">Offline</dt>
-            <dd className="font-mono">{offline}</dd>
-            <dt className="text-accent-text">Pending</dt>
-            <dd className="font-mono">{pending}</dd>
-          </dl>
+          <MapStats counts={counts} className="hidden sm:grid" />
         </div>
 
-        <div className="absolute right-4 top-4 z-10 flex w-[150px] flex-col gap-2 rounded-[14px] border border-line bg-card px-3.5 py-3 text-xs text-muted">
-          <span className="flex items-center gap-2">
-            <span className="w-[26px] border-t-[1.5px] border-line2" />
-            Wired
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="w-[26px] border-t-[1.5px] border-dashed border-ok" />
-            Wi-Fi / LAN
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="size-3.5 rounded border-[1.5px] border-dashed border-accent" />
-            Pending
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="size-3.5 rounded border border-line2 bg-card opacity-55" />
-            Offline
-          </span>
-        </div>
-        <div className="absolute bottom-4 left-4 z-10 flex max-w-[260px] flex-col gap-1.5 rounded-[14px] border border-line bg-card px-3.5 py-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted">New uplink</span>
-            <div role="group" aria-label="New uplink type" className="flex gap-1">
-              {(["wired", "wifi"] as const).map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  aria-pressed={linkKind === kind}
-                  onClick={() => setLinkKind(kind)}
-                  className={clsx(
-                    "h-7 rounded-md border px-2.5 text-[11px]",
-                    linkKind === kind ? "border-accent bg-accent-soft text-text" : "border-line2 text-muted",
-                  )}
-                >
-                  {kind === "wired" ? "Wired" : "Wi-Fi"}
-                </button>
-              ))}
-            </div>
-          </div>
-          <span className="text-[10.5px] leading-snug text-faint">Drag from a node’s bottom edge to another node. Click a line to remove it.</span>
-        </div>
+        <MapLegend className="absolute right-4 top-4 z-10 hidden w-[150px] sm:flex" />
+        <UplinkPicker kind={linkKind} onKind={setLinkKind} className="absolute bottom-4 left-4 z-10 hidden max-w-[260px] sm:flex" />
         {dirty && (
           <span className="absolute bottom-4 right-4 z-10 rounded-full border border-accent-line bg-accent-soft px-3 py-1 text-xs text-accent-text">
             Unsaved layout
           </span>
         )}
       </div>
+      <UplinkPicker kind={linkKind} onKind={setLinkKind} className="mt-3 flex sm:hidden" />
     </>
+  );
+}
+
+type Counts = { total: number; online: number; offline: number; pending: number };
+
+function MapStats({ counts, className }: { counts: Counts; className: string }) {
+  return (
+    <dl className={clsx("grid-cols-[auto_auto] content-start gap-x-[22px] gap-y-1 rounded-[14px] border border-line bg-card px-3.5 py-3 text-[13px]", className)}>
+      <dt className="text-muted">Total</dt>
+      <dd className="font-mono">{counts.total}</dd>
+      <dt className="text-ok">Online</dt>
+      <dd className="font-mono">{counts.online}</dd>
+      <dt className="text-muted">Offline</dt>
+      <dd className="font-mono">{counts.offline}</dd>
+      <dt className="text-accent-text">Pending</dt>
+      <dd className="font-mono">{counts.pending}</dd>
+    </dl>
+  );
+}
+
+function MapLegend({ className }: { className: string }) {
+  return (
+    <div className={clsx("flex-col gap-2 rounded-[14px] border border-line bg-card px-3.5 py-3 text-xs text-muted", className)}>
+      <span className="flex items-center gap-2">
+        <span className="w-[26px] border-t-[1.5px] border-line2" />
+        Wired
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="w-[26px] border-t-[1.5px] border-dashed border-ok" />
+        Wi-Fi / LAN
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="size-3.5 rounded border-[1.5px] border-dashed border-accent" />
+        Pending
+      </span>
+      <span className="flex items-center gap-2">
+        <span className="size-3.5 rounded border border-line2 bg-card opacity-55" />
+        Offline
+      </span>
+    </div>
+  );
+}
+
+type LinkKind = "wired" | "wifi";
+
+function UplinkPicker({ kind, onKind, className }: { kind: LinkKind; onKind: (kind: LinkKind) => void; className: string }) {
+  return (
+    <div className={clsx("flex-col gap-1.5 rounded-[14px] border border-line bg-card px-3.5 py-3", className)}>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted">New uplink</span>
+        <div role="group" aria-label="New uplink type" className="flex gap-1">
+          {(["wired", "wifi"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={kind === value}
+              onClick={() => onKind(value)}
+              className={clsx("h-7 rounded-md border px-2.5 text-[11px]", kind === value ? "border-accent bg-accent-soft text-text" : "border-line2 text-muted")}
+            >
+              {value === "wired" ? "Wired" : "Wi-Fi"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <span className="text-[10.5px] leading-snug text-faint">Drag from a node’s bottom edge to another node. Click a line to remove it.</span>
+    </div>
   );
 }
 
