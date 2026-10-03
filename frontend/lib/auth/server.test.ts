@@ -2,15 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthConfig } from "@/lib/auth/config";
 
-const { betterAuth, genericOAuth, fetchAuthConfig } = vi.hoisted(() => ({
+type Row = { id: string; role: string | null };
+type HookCtx = { path: string; body?: unknown };
+type BuiltOptions = { hooks: { before: (ctx: HookCtx) => Promise<unknown> } };
+
+const { betterAuth, genericOAuth, fetchAuthConfig, query } = vi.hoisted(() => ({
   betterAuth: vi.fn((options: unknown) => ({ options })),
   genericOAuth: vi.fn((options: { config: { providerId: string }[] }) => ({ id: "generic-oauth", options })),
   fetchAuthConfig: vi.fn<() => Promise<AuthConfig>>(),
+  query: vi.fn<(sql: string, params?: unknown[]) => Promise<{ rows: Row[] }>>(),
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("pg", () => ({ Pool: class {} }));
+vi.mock("pg", () => ({ Pool: class { query = query; } }));
 vi.mock("better-auth", () => ({ betterAuth }));
+// The middleware wrapper is better-auth's plumbing; the hook body is what is under test.
+vi.mock("better-auth/api", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  createAuthMiddleware: (fn: unknown) => fn,
+}));
 vi.mock("better-auth/next-js", () => ({ nextCookies: () => ({ id: "next-cookies" }) }));
 vi.mock("better-auth/plugins", () => ({ admin: () => ({ id: "admin" }), username: () => ({ id: "username" }), genericOAuth }));
 vi.mock("@/lib/auth/config", async (importOriginal) => ({ ...(await importOriginal<object>()), fetchAuthConfig }));
@@ -86,5 +96,52 @@ describe("getAuth", () => {
     const { getAuth } = await import("@/lib/auth/server");
     await getAuth();
     expect(betterAuth.mock.lastCall![0]).toMatchObject({ account: { accountLinking: { enabled: false } } });
+  });
+});
+
+describe("last-admin guard", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    betterAuth.mockClear();
+    query.mockReset();
+    fetchAuthConfig.mockResolvedValue({ allowed_emails: [], providers: [], version: "v1" });
+  });
+
+  async function hook(): Promise<BuiltOptions["hooks"]["before"]> {
+    const { getAuth } = await import("@/lib/auth/server");
+    await getAuth();
+    return (betterAuth.mock.lastCall![0] as BuiltOptions).hooks.before;
+  }
+
+  it.each([
+    ["/admin/remove-user", { userId: "a" }],
+    ["/admin/ban-user", { userId: "a" }],
+    ["/admin/set-role", { userId: "a", role: "user" }],
+    ["/admin/update-user", { userId: "a", data: { role: "user" } }],
+  ])("refuses %s on the only admin", async (path, body) => {
+    query.mockResolvedValue({ rows: [{ id: "a", role: "admin" }] });
+    const before = await hook();
+    await expect(before({ path, body })).rejects.toMatchObject({ statusCode: 400, message: "cannot remove the last admin" });
+    expect(query.mock.lastCall![1]).toEqual(["a"]);
+  });
+
+  it("lets it through when another admin exists", async () => {
+    query.mockResolvedValue({ rows: [{ id: "a", role: "admin" }, { id: "b", role: "admin" }] });
+    const before = await hook();
+    await expect(before({ path: "/admin/remove-user", body: { userId: "a" } })).resolves.toBeUndefined();
+  });
+
+  it("lets it through for plain users and unknown ids", async () => {
+    const before = await hook();
+    query.mockResolvedValue({ rows: [{ id: "a", role: "admin" }, { id: "u", role: "user" }] });
+    await expect(before({ path: "/admin/remove-user", body: { userId: "u" } })).resolves.toBeUndefined();
+    await expect(before({ path: "/admin/remove-user", body: { userId: "missing" } })).resolves.toBeUndefined();
+  });
+
+  it("does not query the database for unrelated endpoints", async () => {
+    const before = await hook();
+    await expect(before({ path: "/sign-in/username", body: { username: "x" } })).resolves.toBeUndefined();
+    await expect(before({ path: "/admin/set-role", body: { userId: "a", role: "admin" } })).resolves.toBeUndefined();
+    expect(query).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { betterAuth } from "better-auth";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { admin, genericOAuth, username } from "better-auth/plugins";
 import { Pool } from "pg";
@@ -8,12 +9,27 @@ import { Pool } from "pg";
 import { authDatabaseUrl, fetchAuthConfig, type AuthConfig, type AuthProvider } from "@/lib/auth/config";
 import { probeDiscovery } from "@/lib/auth/discovery";
 import { isUserAllowed } from "@/lib/auth/gate";
+import { adminLossTarget, canRemoveOrDemote, LAST_ADMIN_MESSAGE } from "@/lib/auth/last-admin";
 
 // Keep the schema-affecting options (additional fields, username/admin
 // plugins) in sync with scripts/migrate-auth.mjs, which creates the tables.
 const pool = new Pool({ connectionString: authDatabaseUrl(), options: "-c search_path=auth" });
 
 const RETRY_MS = 15_000;
+
+// Server-side twin of the Settings UI rule: the last admin can be neither
+// deleted, banned nor demoted, whatever client calls the admin endpoints.
+const lastAdminGuard = createAuthMiddleware(async (ctx) => {
+  const userId = adminLossTarget(ctx.path, ctx.body);
+  if (!userId) return;
+  const { rows } = await pool.query<{ id: string; role: string | null }>(
+    `SELECT id, role FROM auth."user" WHERE id = $1 OR role LIKE '%admin%'`,
+    [userId],
+  );
+  const target = rows.find((u) => u.id === userId);
+  // An unknown id is left to the endpoint, which answers 404.
+  if (target && !canRemoveOrDemote(target, rows)) throw new APIError("BAD_REQUEST", { message: LAST_ADMIN_MESSAGE });
+});
 
 function build(cfg: AuthConfig, providers: AuthProvider[]) {
   return betterAuth({
@@ -25,6 +41,7 @@ function build(cfg: AuthConfig, providers: AuthProvider[]) {
     // An IdP account must never be attached to an existing (e.g. local) user.
     account: { accountLinking: { enabled: false } },
     user: { additionalFields: { source: { type: "string", defaultValue: "oidc", input: false } } },
+    hooks: { before: lastAdminGuard },
     databaseHooks: {
       user: {
         create: {
