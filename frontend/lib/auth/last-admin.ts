@@ -1,4 +1,4 @@
-type Account = { id: string; role?: string | null };
+type Account = { id: string; role?: string | null; banned?: boolean | null; banExpires?: Date | string | null };
 
 export const LAST_ADMIN_MESSAGE = "cannot remove the last admin";
 
@@ -8,10 +8,14 @@ function hasAdmin(role: unknown): boolean {
   return roles.some((r) => typeof r === "string" && r.trim() === "admin");
 }
 
-// The last admin can be neither deleted nor demoted.
+function isBanned(u: Account): boolean {
+  return u.banned === true && (!u.banExpires || new Date(u.banExpires).getTime() > Date.now());
+}
+
+// The last usable (not banned) admin can be neither deleted nor demoted.
 export function canRemoveOrDemote(target: Account, users: Account[]): boolean {
   if (!hasAdmin(target.role)) return true;
-  return users.some((u) => u.id !== target.id && hasAdmin(u.role));
+  return users.some((u) => u.id !== target.id && hasAdmin(u.role) && !isBanned(u));
 }
 
 /** The user an admin-plugin request would delete, ban or strip of the admin role, if any. */

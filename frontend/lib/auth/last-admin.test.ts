@@ -7,6 +7,14 @@ describe("canRemoveOrDemote", () => {
   it("refuses to remove the only admin", () => expect(canRemoveOrDemote(a, [a, u])).toBe(false));
   it("allows it when another admin exists", () => expect(canRemoveOrDemote(a, [a, b, u])).toBe(true));
   it("always allows plain users", () => expect(canRemoveOrDemote(u, [a, u])).toBe(true));
+  it("does not count banned admins as another admin", () => {
+    const banned = { id: "x", role: "admin", banned: true, banExpires: null };
+    expect(canRemoveOrDemote(a, [a, banned])).toBe(false);
+  });
+  it("counts an admin whose ban has expired", () => {
+    const expired = { id: "x", role: "admin", banned: true, banExpires: new Date(Date.now() - 1000) };
+    expect(canRemoveOrDemote(a, [a, expired])).toBe(true);
+  });
   it("counts multi-role admins", () => {
     const multi = { id: "m", role: "user,admin" };
     expect(canRemoveOrDemote(a, [a, multi])).toBe(true);

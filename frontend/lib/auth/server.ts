@@ -22,8 +22,8 @@ const RETRY_MS = 15_000;
 const lastAdminGuard = createAuthMiddleware(async (ctx) => {
   const userId = adminLossTarget(ctx.path, ctx.body);
   if (!userId) return;
-  const { rows } = await pool.query<{ id: string; role: string | null }>(
-    `SELECT id, role FROM auth."user" WHERE id = $1 OR role LIKE '%admin%'`,
+  const { rows } = await pool.query<{ id: string; role: string | null; banned: boolean | null; banExpires: Date | null }>(
+    `SELECT id, role, banned, "banExpires" FROM auth."user" WHERE id = $1 OR role LIKE '%admin%'`,
     [userId],
   );
   const target = rows.find((u) => u.id === userId);

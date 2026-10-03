@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthConfig } from "@/lib/auth/config";
 
-type Row = { id: string; role: string | null };
+type Row = { id: string; role: string | null; banned?: boolean | null; banExpires?: Date | null };
 type HookCtx = { path: string; body?: unknown };
 type BuiltOptions = { hooks: { before: (ctx: HookCtx) => Promise<unknown> } };
 
@@ -129,6 +129,12 @@ describe("last-admin guard", () => {
     query.mockResolvedValue({ rows: [{ id: "a", role: "admin" }, { id: "b", role: "admin" }] });
     const before = await hook();
     await expect(before({ path: "/admin/remove-user", body: { userId: "a" } })).resolves.toBeUndefined();
+  });
+
+  it("refuses when the only other admin is banned", async () => {
+    query.mockResolvedValue({ rows: [{ id: "a", role: "admin" }, { id: "b", role: "admin", banned: true, banExpires: null }] });
+    const before = await hook();
+    await expect(before({ path: "/admin/set-role", body: { userId: "a", role: "user" } })).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("lets it through for plain users and unknown ids", async () => {
