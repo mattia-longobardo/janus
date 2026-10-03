@@ -22,6 +22,7 @@ Janus never sits in the traffic path. It watches the LAN (ARP, DHCP, mDNS, NetBI
     docker compose up -d --build
 
 Open `https://<JANUS_HOST>`: with no user yet you are sent to `/setup` to create the first admin (or set `JANUS_ADMIN_USERNAME`/`JANUS_ADMIN_PASSWORD`). Everything else is optional and configured in **Settings** or through the optional variables of `.env.example`: Gotify and e-mail notifications, Authentik/OIDC sign-in, the Pi-hole or UniFi provider, the guest pool.
+
 The stack joins the external networks `proxy_public`, `db_internal`, `mail_internal` and `metrics_internal`, and expects the shared PostgreSQL (database `janus`), Redis and Traefik of the homelab; Authentik, Gotify and SMTP are optional. Back up the `auth` schema of the database together with `public`.
 
 Janus starts in `dry-run`: it computes the reservation diff and never writes to the DHCP provider until the cutover switches it to `apply`.

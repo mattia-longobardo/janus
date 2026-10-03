@@ -9,7 +9,7 @@
       "url": "https://github.com/mattia-longobardo/janus.git",
       "provider": "github",
       "link_mode": "local-only",
-      "revision": "101df2d7c406d80cfab6f00d89621bd1e37ea7c7"
+      "revision": "42f31a43d06c9a745236d7e1bb413d24d4ce2431"
     }
   },
   "components": [
@@ -17,7 +17,7 @@
       "id": "admin",
       "type": "external",
       "label": "Admin browser",
-      "sublabel": "allowlisted e-mail",
+      "sublabel": "password or OIDC",
       "pos": [
         40,
         240
@@ -28,8 +28,9 @@
       ],
       "sources": [
         {
-          "path": "frontend/lib/allowlist.ts",
-          "line": 1
+          "path": "frontend/lib/auth/gate.ts",
+          "line": 1,
+          "end_line": 11
         }
       ]
     },
@@ -57,8 +58,8 @@
     {
       "id": "authentik",
       "type": "security",
-      "label": "Authentik",
-      "sublabel": "OIDC provider",
+      "label": "OIDC provider",
+      "sublabel": "optional (Authentik)",
       "pos": [
         480,
         60
@@ -69,9 +70,9 @@
       ],
       "sources": [
         {
-          "path": "frontend/auth.ts",
-          "line": 6,
-          "end_line": 16
+          "path": "frontend/lib/auth/discovery.ts",
+          "line": 1,
+          "end_line": 31
         }
       ]
     },
@@ -79,7 +80,7 @@
       "id": "web",
       "type": "frontend",
       "label": "Next.js web",
-      "sublabel": "Auth.js · :3000",
+      "sublabel": "better-auth · :3000",
       "pos": [
         480,
         240
@@ -92,12 +93,17 @@
         {
           "path": "frontend/app/api/[...path]/route.ts",
           "line": 9,
-          "end_line": 16
+          "end_line": 15
         },
         {
           "path": "frontend/lib/proxy.ts",
           "line": 21,
           "end_line": 45
+        },
+        {
+          "path": "frontend/lib/auth/server.ts",
+          "line": 1,
+          "end_line": 146
         }
       ]
     },
@@ -137,7 +143,7 @@
       "id": "postgres",
       "type": "database",
       "label": "PostgreSQL",
-      "sublabel": "shared db stack",
+      "sublabel": "schemas public + auth",
       "pos": [
         1000,
         236
@@ -162,7 +168,7 @@
       "id": "pihole",
       "type": "external",
       "label": "Pi-hole v6",
-      "sublabel": "DHCP hosts · DNS log",
+      "sublabel": "DHCP + DNS (same_as)",
       "pos": [
         745,
         440
@@ -173,14 +179,14 @@
       ],
       "sources": [
         {
-          "path": "backend/app/pihole/client.py",
-          "line": 112,
-          "end_line": 131
+          "path": "backend/app/providers/pihole/client.py",
+          "line": 31,
+          "end_line": 149
         },
         {
-          "path": "backend/app/api/approval.py",
-          "line": 44,
-          "end_line": 57
+          "path": "backend/app/providers/registry.py",
+          "line": 19,
+          "end_line": 36
         }
       ]
     },
@@ -188,7 +194,7 @@
       "id": "worker",
       "type": "backend",
       "label": "janus-worker",
-      "sublabel": "5 periodic jobs",
+      "sublabel": "6 periodic jobs incl. guests",
       "pos": [
         1000,
         440
@@ -200,8 +206,8 @@
       "sources": [
         {
           "path": "backend/app/worker.py",
-          "line": 149,
-          "end_line": 175
+          "line": 212,
+          "end_line": 240
         }
       ]
     },
@@ -233,7 +239,7 @@
       "id": "notify",
       "type": "external",
       "label": "Gotify · SMTP",
-      "sublabel": "alerts",
+      "sublabel": "optional alerts",
       "pos": [
         1000,
         620
@@ -322,6 +328,27 @@
           "end_line": 89
         }
       ]
+    },
+    {
+      "id": "unifi",
+      "type": "external",
+      "label": "UniFi Network",
+      "sublabel": "DHCP role · clients",
+      "pos": [
+        490,
+        440
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/app/providers/unifi/client.py",
+          "line": 13,
+          "end_line": 138
+        }
+      ]
     }
   ],
   "boundaries": [
@@ -353,7 +380,7 @@
       "id": "web-oidc",
       "from": "web",
       "to": "authentik",
-      "label": "OIDC sign-in",
+      "label": "optional OIDC sign-in",
       "variant": "security"
     },
     {
@@ -373,7 +400,7 @@
       "id": "api-pihole",
       "from": "api",
       "to": "pihole",
-      "label": "approve · DNS log"
+      "label": "provider: approve · DNS log"
     },
     {
       "id": "worker-sql",
@@ -385,7 +412,7 @@
       "id": "worker-pihole",
       "from": "worker",
       "to": "pihole",
-      "label": "reconcile"
+      "label": "reconcile · guests"
     },
     {
       "id": "worker-redis",
@@ -423,6 +450,13 @@
       "from": "scanner",
       "to": "postgres",
       "label": "services"
+    },
+    {
+      "id": "api-unifi",
+      "from": "api",
+      "to": "unifi",
+      "label": "provider: DHCP role",
+      "variant": "dashed"
     }
   ],
   "cards": [
@@ -431,7 +465,7 @@
       "title": "Request path",
       "items": [
         "Traefik routes to Next.js on :3000",
-        "Auth.js signs in through Authentik; only allowlisted e-mails",
+        "better-auth signs in with password or optional OIDC; users live in the auth schema, OIDC users only if allowlisted",
         "Only signed-in, same-origin requests reach FastAPI with the internal token"
       ]
     },
@@ -439,18 +473,18 @@
       "dot": "emerald",
       "title": "Background",
       "items": [
-        "Worker every 5 min: Pi-hole reconcile; every minute: presence, DNS check, identity; every 15 s: alert dispatch",
+        "Worker every 5 min: provider reconcile; every minute: presence, DNS check, identity, expired guests; every 15 s: alert dispatch",
         "Sentinel sniffs ARP/DHCP/mDNS/NetBIOS/SSDP and sweeps ARP",
         "Scanner runs nmap -sT -sV on scan-enabled groups"
       ]
     },
     {
       "dot": "amber",
-      "title": "Pi-hole",
+      "title": "Network providers",
       "items": [
+        "The registry discovers providers; each holds the DHCP and/or DNS role (Pi-hole both, UniFi DHCP)",
         "dry-run logs the reservation diff; apply writes it",
-        "Approved devices get static reservations",
-        "Unknown devices stay in the .240–.254 quarantine pool"
+        "Unknown devices stay in the quarantine pool; guests use a separate pool"
       ]
     }
   ]
