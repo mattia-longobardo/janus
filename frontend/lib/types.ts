@@ -158,3 +158,21 @@ export interface Approval {
   device: Device;
   enforcement: string;
 }
+
+export interface ProviderRef {
+  kind: string;
+  label: string;
+  capabilities: string[];
+  down_since: string | null;
+}
+
+export interface ProvidersFeature {
+  dhcp: ProviderRef | null;
+  dns: ProviderRef | null;
+}
+
+export interface Features {
+  notify?: { email: boolean; gotify: boolean };
+  providers?: ProvidersFeature;
+  guests?: { enabled: boolean };
+}

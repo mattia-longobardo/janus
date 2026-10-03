@@ -1,29 +1,19 @@
 "use client";
 
 import clsx from "clsx";
-import { Bell, Clock3, Grid2x2, House, Layers, LogOut, Monitor, NotepadText, Settings, Share2, X } from "lucide-react";
+import { LogOut, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { logout } from "@/lib/auth-actions";
 import { describeDays } from "@/lib/days";
+import { useFeatures } from "@/lib/features";
 import { relativeTime } from "@/lib/format";
+import { visibleNav } from "@/lib/nav";
 import { nextScanIn, useNow } from "@/lib/use-now";
 import { useSettings } from "@/lib/settings-context";
 import type { Device, MaintenanceWindow } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
-
-const NAV = [
-  { href: "/", label: "Overview", icon: House },
-  { href: "/map", label: "Network map", icon: Share2 },
-  { href: "/devices", label: "Devices", icon: Monitor, count: "all" },
-  { href: "/pending", label: "Pending", icon: Clock3, count: "pending" },
-  { href: "/ip-plan", label: "IP plan", icon: Grid2x2 },
-  { href: "/groups", label: "Groups", icon: Layers },
-  { href: "/notifications", label: "Notifications", icon: Bell },
-  { href: "/events", label: "Event log", icon: NotepadText },
-  { href: "/settings", label: "Settings", icon: Settings },
-] as const;
 
 export function Logo() {
   return (
@@ -41,6 +31,7 @@ export function Logo() {
 export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () => void; user: string }) {
   const pathname = usePathname();
   const { settings } = useSettings();
+  const { features } = useFeatures();
   const { data: devices } = useResource<Device[]>("/devices", { refreshMs: 15_000 });
   const now = useNow(1000);
   const nextScan = nextScanIn(settings.status.last_sweep_at, settings.network.sweep_interval_s, now);
@@ -77,9 +68,9 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
           </button>
         </div>
         <ul className="flex flex-col gap-[3px]">
-          {NAV.map((item) => {
+          {visibleNav(features).map((item) => {
             const Icon = item.icon;
-            const count = "count" in item ? counts[item.count] : undefined;
+            const count = item.count ? counts[item.count as keyof typeof counts] : undefined;
             const active = isActive(item.href);
             return (
               <li key={item.href}>
@@ -98,7 +89,7 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
                     <span
                       className={clsx(
                         "ml-auto rounded-full px-2 py-0.5 font-mono text-xs",
-                        "count" in item && item.count === "pending" ? "bg-accent text-accent-ink" : "bg-line text-text2",
+                        item.count === "pending" ? "bg-accent text-accent-ink" : "bg-line text-text2",
                       )}
                     >
                       {count}
