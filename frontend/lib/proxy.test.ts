@@ -80,6 +80,15 @@ describe("forward", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("never forwards a path that climbs out of /api/", async () => {
+    const fetcher = vi.fn();
+    for (const path of [["..", "metrics"], ["devices", "..", "..", "healthz"], [".", "..", "x"]]) {
+      const response = await forward(request("GET"), path, { signedIn: true, backend: "http://b", allowedOrigins: ORIGINS, fetcher });
+      expect(response.status).toBe(404);
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed percent-encoding without forwarding", async () => {
     const fetcher = vi.fn();
     const response = await forward(request("GET"), ["%E0%A4%A"], { signedIn: true, backend: "http://b", allowedOrigins: ORIGINS, fetcher });

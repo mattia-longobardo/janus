@@ -34,7 +34,8 @@ export async function forward(req: Request, path: string[], options: ForwardOpti
   } catch {
     return Response.json({ detail: "bad request" }, { status: 400 });
   }
-  if (first === "internal") return Response.json({ detail: "not found" }, { status: 404 });
+  // Dot segments ("..") resolve before the request leaves: never let one climb out of /api/.
+  if (first === "internal" || !url.pathname.startsWith("/api/")) return Response.json({ detail: "not found" }, { status: 404 });
   let body: ArrayBuffer | undefined;
   if (WRITES.has(req.method)) {
     body = await req.arrayBuffer();

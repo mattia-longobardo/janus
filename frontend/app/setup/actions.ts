@@ -33,7 +33,9 @@ export async function createFirstAdmin(_prev: SetupState, formData: FormData): P
     });
     await auth.api.signInUsername({ body: { username, password }, headers: await headers() });
   } catch (e) {
-    return { error: e instanceof Error && e.message ? e.message : "Could not create the administrator." };
+    // Never hand better-auth or database internals to an unauthenticated visitor; the log keeps the detail.
+    console.error("setup: creating the first admin failed", e);
+    return { error: "Could not create the administrator. Check the server log and try again." };
   }
   redirect("/");
 }

@@ -112,7 +112,10 @@ function UsersPart({ selfId }: { selfId: string }) {
                 <Button
                   aria-label={isAdmin ? `Make ${u.name} user` : `Make ${u.name} admin`}
                   disabled={isAdmin && protectedAdmin}
-                  onClick={() => void run(() => authClient.admin.setRole({ userId: u.id, role: isAdmin ? "user" : "admin" }), `Role updated for ${u.name}`)}
+                  onClick={() => {
+                    if (!window.confirm(isAdmin ? `Make ${u.name} a plain user?` : `Make ${u.name} an admin?`)) return;
+                    void run(() => authClient.admin.setRole({ userId: u.id, role: isAdmin ? "user" : "admin" }), `Role updated for ${u.name}`);
+                  }}
                 >
                   {isAdmin ? "Make user" : "Make admin"}
                 </Button>
@@ -120,7 +123,10 @@ function UsersPart({ selfId }: { selfId: string }) {
                   variant="danger"
                   aria-label={`Delete ${u.name}`}
                   disabled={protectedAdmin || u.id === selfId}
-                  onClick={() => void run(() => authClient.admin.removeUser({ userId: u.id }), `User ${u.name} deleted`)}
+                  onClick={() => {
+                    if (!window.confirm(`Delete ${u.name}? This cannot be undone.`)) return;
+                    void run(() => authClient.admin.removeUser({ userId: u.id }), `User ${u.name} deleted`);
+                  }}
                 >
                   Delete
                 </Button>

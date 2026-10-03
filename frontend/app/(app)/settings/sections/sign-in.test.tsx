@@ -112,4 +112,24 @@ describe("SignInSection", () => {
     await userEvent.click(screen.getByRole("button", { name: "Change password" }));
     expect(authClient.changePassword).toHaveBeenCalledWith({ currentPassword: "old-password-1", newPassword: "new-password-123", revokeOtherSessions: true });
   });
+
+  it("asks before deleting a user or changing a role", async () => {
+    mockSession({ id: "a", role: "admin", source: "local" });
+    mockUsers(USERS);
+    vi.mocked(authClient.admin.removeUser).mockResolvedValue({ data: {}, error: null } as never);
+    vi.mocked(authClient.admin.setRole).mockResolvedValue({ data: {}, error: null } as never);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<SignInSection />);
+    await userEvent.click(await screen.findByRole("button", { name: "Delete kid" }));
+    await userEvent.click(screen.getByRole("button", { name: "Make kid admin" }));
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(authClient.admin.removeUser).not.toHaveBeenCalled();
+    expect(authClient.admin.setRole).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "Delete kid" }));
+    expect(authClient.admin.removeUser).toHaveBeenCalledWith({ userId: "u" });
+    await userEvent.click(screen.getByRole("button", { name: "Make kid admin" }));
+    expect(authClient.admin.setRole).toHaveBeenCalledWith({ userId: "u", role: "admin" });
+    confirm.mockRestore();
+  });
 });
