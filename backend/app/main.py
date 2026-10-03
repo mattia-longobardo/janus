@@ -5,7 +5,6 @@ from fastapi.responses import JSONResponse
 from app.api import (
     approval,
     authconfig,
-    cutover,
     devices,
     events,
     features,
@@ -38,7 +37,7 @@ def create_app() -> FastAPI:
     protected = [Depends(require_internal)]
     for router in (groups.router, devices.router, approval.router, sync.router,
                    notifications.router, maintenance.router, events.router, intel.router, settings.router, authconfig.router,
-                   map.router, services.router, cutover.router, features.router, providers.router, internal.router):
+                   map.router, services.router, features.router, providers.router, internal.router):
         app.include_router(router, dependencies=protected)
     for spec in registry.all_specs():
         if spec.router is not None:

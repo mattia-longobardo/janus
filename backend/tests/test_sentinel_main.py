@@ -32,6 +32,8 @@ def test_write_heartbeat(db, tmp_path):
     write_heartbeat(lambda: nullcontext(db), path, NOW)
     assert path.exists()
     assert db.get(Setting, "sentinel.heartbeat").value == NOW.isoformat()
+    write_heartbeat(lambda: nullcontext(db), path, NOW, dns_probe=lambda: True)
+    assert db.get(Setting, "dns.last_ok").value == NOW.isoformat()
 
 
 def test_enqueuer_drops_when_full():
@@ -79,3 +81,21 @@ def test_one_bad_observation_does_not_lose_the_others(db, monkeypatch):
     macs = set(db.scalars(select(Device.mac)))
     assert {"00:00:5E:00:53:40", "00:00:5E:00:53:42"} <= macs
     assert "00:00:5E:00:53:41" not in macs
+
+
+def test_dns_probe_host_comes_from_the_dns_provider(db, monkeypatch):
+    from app.config import settings
+    from app.sentinel.main import dns_probe_host
+
+    monkeypatch.setattr(settings, "dhcp_provider", "")
+    monkeypatch.setattr(settings, "dns_provider", "")
+    monkeypatch.setattr(settings, "pihole_url", "http://192.168.1.220:1000")
+    monkeypatch.setattr(settings, "pihole_password", "pw")
+    assert dns_probe_host(lambda: nullcontext(db)) == "192.168.1.220"
+    monkeypatch.setattr(settings, "dns_provider", "none")
+    assert dns_probe_host(lambda: nullcontext(db)) is None
+
+
+def test_heartbeat_without_probe_never_records_a_dns_answer(db, tmp_path):
+    write_heartbeat(lambda: nullcontext(db), tmp_path / "hb", NOW, dns_probe=None)
+    assert db.get(Setting, "dns.last_ok") is None

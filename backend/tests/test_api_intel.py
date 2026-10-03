@@ -3,11 +3,25 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.api.sync import get_pihole
 from app.models import Access, Device, DeviceFact, Service
+from app.providers.pihole.provider import PiholeConfig, PiholeProvider
 from tests.fakes import FakePihole
+from tests.fakes_provider import app_override_dns
 
 NOW = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+CFG = PiholeConfig(url="http://192.168.1.220:1000", password="pw")
+
+
+def _use(client, fake):
+    app_override_dns(client, ("pihole", lambda: PiholeProvider(fake, CFG)))
+
+
+def seed_device(db):
+    d = Device(mac="00:00:5E:00:53:42", name="Plug", hostname="plug", access=Access.authorized, online=True,
+               last_ip="192.168.1.42")
+    db.add(d)
+    db.flush()
+    return d
 
 
 @pytest.fixture
@@ -66,13 +80,13 @@ def test_dns_activity(client, device):
         {"time": now - 30, "domain": "other.example", "status": "FORWARDED", "client": {"ip": "192.168.1.41"}},
         {"time": now - 90000, "domain": "old.example", "status": "FORWARDED", "client": {"ip": "192.168.1.40"}},
     ]
-    client.app.dependency_overrides[get_pihole] = lambda: fake
+    _use(client, fake)
     body = client.get(f"/api/devices/{device.id}/dns").json()
     assert body == {"total": 3, "sampled": 3, "truncated": False, "blocked": 1, "domains": [
         {"domain": "api.example.org", "count": 2, "blocked": False},
         {"domain": "ads.example.net", "count": 1, "blocked": True},
     ]}
-    client.app.dependency_overrides[get_pihole] = lambda: FakePihole(fail=True)
+    _use(client, FakePihole(fail=True))
     assert client.get(f"/api/devices/{device.id}/dns").status_code == 502
 
 
@@ -81,9 +95,17 @@ def test_dns_reports_truncation_and_uses_disk_for_long_windows(client, device):
     fake.queries = [{"time": time.time() - 10, "domain": "a.example", "status": "FORWARDED",
                      "client": {"ip": "192.168.1.40"}}] * 3
     fake.reported_total = 12000
-    client.app.dependency_overrides[get_pihole] = lambda: fake
+    _use(client, fake)
     body = client.get(f"/api/devices/{device.id}/dns", params={"hours": 72}).json()
     assert (body["total"], body["sampled"], body["truncated"]) == (12000, 3, True)
     assert fake.last_query["disk"] is True
     client.get(f"/api/devices/{device.id}/dns", params={"hours": 12})
     assert fake.last_query["disk"] is False
+
+
+def test_dns_routes_are_404_without_dns_provider(client, db):
+    app_override_dns(client, None)
+    d = seed_device(db)
+    assert client.get(f"/api/devices/{d.id}/dns").status_code == 404
+    r = client.get(f"/api/devices/{d.id}/dns/analysis")
+    assert r.status_code == 404 and r.json()["detail"] == "no DNS provider with a query log"

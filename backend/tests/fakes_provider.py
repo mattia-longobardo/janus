@@ -1,5 +1,6 @@
-from typing import Self
+from typing import Any, Self
 
+from app.api.roles import get_dhcp, get_dns
 from app.providers.base import CurrentEntry, ProviderError, Reservation
 
 
@@ -49,3 +50,13 @@ class FakeStore:
 
     def force_renew(self, mac: str, ip: str | None) -> None:
         self._write("renew", mac)
+
+
+def app_override_dhcp(client: Any, value: Any) -> None:
+    """Pretend the DHCP role is `value`: (kind, policies, factory) or None for no provider."""
+    client.app.dependency_overrides[get_dhcp] = lambda: value
+
+
+def app_override_dns(client: Any, value: Any) -> None:
+    """Pretend the DNS query log is `value`: (kind, factory) or None for no provider with a query log."""
+    client.app.dependency_overrides[get_dns] = lambda: value

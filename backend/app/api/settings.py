@@ -24,7 +24,6 @@ class NetworkPatch(BaseModel):
     gateway: str | None = None
     quarantine_start: str | None = None
     quarantine_end: str | None = None
-    pihole_url: str | None = None
     sentinel_interface: str | None = None
     sweep_interval_s: int | None = None
     scan_window_start: str | None = None
@@ -54,15 +53,14 @@ def _view(db: Session) -> dict[str, Any]:
             "gateway": cfg.gateway,
             "quarantine_start": cfg.quarantine_start,
             "quarantine_end": cfg.quarantine_end,
-            "pihole_url": cfg.pihole_url,
             "sentinel_interface": cfg.sentinel_interface,
             "sweep_interval_s": cfg.sweep_interval_s,
         },
         "scan_window": {"start": cfg.scan_window_start, "end": cfg.scan_window_end},
         "source": sources(db),
         "status": {
-            "pihole_down_since": _setting(db, "pihole.down_since"),
-            "dns_down_since": _setting(db, "pihole_dns.down_since"),
+            "dhcp_down_since": _setting(db, "dhcp.down_since"),
+            "dns_down_since": _setting(db, "dns.down_since"),
             "sentinel_down_since": _setting(db, "sentinel.down_since"),
             "last_sweep_at": _setting(db, "sentinel.heartbeat"),
             "maintenance_active": bool(_setting(db, "maintenance.active")),

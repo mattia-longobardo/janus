@@ -18,7 +18,7 @@ def _seed(db):
         Service(mac="00:00:5E:00:53:70", port=1900, proto="udp", state="open", risk="warning",
                 first_seen=NOW, last_seen=NOW),
         Setting(key="sentinel.heartbeat", value=NOW.isoformat()),
-        Setting(key="pihole.down_since", value=NOW.isoformat()),
+        Setting(key="dhcp.down_since", value=NOW.isoformat()),
         Event(type="device.new", mac="00:00:5E:00:53:72", payload={}, ts=NOW),
         Event(type="device.new", mac="00:00:5E:00:53:71", payload={}, ts=NOW),
     ])
@@ -36,7 +36,9 @@ def test_metrics_text(db):
     assert 'janus_devices_health{health="warning"} 1' in text
     assert f"janus_last_sweep_timestamp_seconds {NOW.timestamp():g}" in text
     assert f"janus_last_port_scan_timestamp_seconds {NOW.timestamp():g}" in text
-    assert "janus_pihole_up 0" in text
+    assert 'janus_provider_up{role="dhcp"} 0' in text
+    assert 'janus_provider_up{role="dns"} 1' in text
+    assert "pihole" not in text
     assert "janus_maintenance_active 0" in text
     assert 'janus_sync_mode_info{mode="dry-run"} 1' in text
     assert 'janus_events_total{type="device.new"} 2' in text

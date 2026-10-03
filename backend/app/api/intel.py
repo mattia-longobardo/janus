@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.devices import get_device_or_404
-from app.api.sync import get_pihole
+from app.api.roles import get_dns
 from app.db import get_db
 from app.general import current_tz
 from app.intel.dns import analyze
@@ -17,9 +17,8 @@ from app.intel.rules import summarize
 from app.intel.scanning import on_lan
 from app.models import DeviceFact, Service
 from app.netconfig import load_netconfig
-from app.providers.base import DnsQuery
-from app.providers.pihole.client import PiholeClient, PiholeError
-from app.providers.pihole.dns import normalize
+from app.providers.base import DnsQuery, ProviderError
+from app.providers.runtime import DnsLogRef
 
 router = APIRouter(prefix="/api/devices", tags=["intelligence"])
 
@@ -58,23 +57,27 @@ def request_scan(device_id: uuid.UUID, db: Session = Depends(get_db)) -> dict[st
     return {"queued": True}
 
 
-def _device_queries(db: Session, pihole: PiholeClient, device_id: uuid.UUID,
+def _device_queries(db: Session, dns: DnsLogRef | None, device_id: uuid.UUID,
                     hours: int) -> tuple[list[DnsQuery], int, int]:
+    if dns is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no DNS provider with a query log")
     device = get_device_or_404(db, device_id)
     if not device.last_ip:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "the device has no known IP address yet")
     until = int(time.time())
+    _, factory = dns
     try:
-        queries, total = pihole.list_queries(device.last_ip, until - hours * 3600, until, disk=hours > 24)
-    except PiholeError as exc:
+        with factory() as provider:
+            queries, total = provider.query_log(device.last_ip, until - hours * 3600, until)
+    except ProviderError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
-    return [normalize(q) for q in queries], total, until
+    return queries, total, until
 
 
 @router.get("/{device_id}/dns")
 def device_dns(device_id: uuid.UUID, hours: int = Query(default=24, ge=1, le=168), db: Session = Depends(get_db),
-               pihole: PiholeClient = Depends(get_pihole)) -> dict[str, Any]:
-    queries, total, _ = _device_queries(db, pihole, device_id, hours)
+               dns: DnsLogRef | None = Depends(get_dns)) -> dict[str, Any]:
+    queries, total, _ = _device_queries(db, dns, device_id, hours)
     counts = Counter(q.domain for q in queries)
     blocked_domains = {q.domain for q in queries if q.blocked}
     return {
@@ -88,6 +91,6 @@ def device_dns(device_id: uuid.UUID, hours: int = Query(default=24, ge=1, le=168
 
 @router.get("/{device_id}/dns/analysis")
 def device_dns_analysis(device_id: uuid.UUID, hours: int = Query(default=24, ge=1, le=168),
-                        db: Session = Depends(get_db), pihole: PiholeClient = Depends(get_pihole)) -> dict[str, Any]:
-    queries, total, until = _device_queries(db, pihole, device_id, hours)
+                        db: Session = Depends(get_db), dns: DnsLogRef | None = Depends(get_dns)) -> dict[str, Any]:
+    queries, total, until = _device_queries(db, dns, device_id, hours)
     return analyze(queries, total, until - hours * 3600, until, hours, current_tz(db))

@@ -1,6 +1,6 @@
 from app.config import settings
 from app.providers.base import Capability, ProviderSpec, Role
-from app.providers.pihole import api
+from app.providers.pihole import api, cli
 from app.providers.pihole.client import PiholeClient, shared_session
 from app.providers.pihole.provider import KIND, POLICIES, PiholeConfig, PiholeProvider
 
@@ -25,5 +25,6 @@ SPEC = ProviderSpec(
                           "lease": settings.reservation_lease},
     open=open_pihole,
     router=api.router,
+    cli=cli.register,
     docs_url="https://docs.pi-hole.net/api/",
 )

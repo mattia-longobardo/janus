@@ -29,6 +29,13 @@ def test_offline_message_uses_local_time():
 def test_infra_messages_name_the_service():
     down = _render("infra.down", {"service": "pihole", "error": "Pi-hole unreachable: refused"}, mac=None)
     assert (down.title, down.body, down.url) == ("Pi-hole unreachable", "Pi-hole unreachable: refused", BASE)
+    dhcp = _render("infra.down", {"service": "dhcp", "provider": "Pi-hole", "error": "refused"}, mac=None)
+    assert dhcp.title == "Pi-hole DHCP unreachable"
+    dns = _render("infra.up", {"service": "dns", "provider": "Pi-hole", "down_since": "2026-10-01T03:00:00+00:00"},
+                  mac=None)
+    assert dns.title == "Pi-hole DNS reachable again"
+    assert _render("infra.down", {"service": "dns", "error": "x"}, mac=None).title == "DNS unreachable"
+    assert _render("infra.down", {"service": "pihole_dns", "error": "x"}, mac=None).title == "Pi-hole DNS unreachable"
     up = _render("infra.up", {"service": "sentinel", "down_since": "2026-10-01T03:00:00+00:00"}, mac=None)
     assert (up.title, up.body) == ("Scanner reachable again", "Down since 01/10 05:00")
 

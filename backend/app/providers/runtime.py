@@ -1,4 +1,5 @@
 """What the rest of Janus asks about the configured providers, without knowing which ones they are."""
+import logging
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from ipaddress import AddressValueError, IPv4Address
@@ -8,15 +9,61 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from app.models import Setting
-from app.providers.base import Capability, Policy, Role, role_capabilities
+from app.providers import registry
+from app.providers.base import Capability, DnsProbe, Policy, ProviderError, Role, role_capabilities
 from app.providers.config import RoleConfig, load_role
 
+log = logging.getLogger(__name__)
+ProviderFactory = Callable[[], AbstractContextManager[Any]]
+DhcpRef = tuple[str, frozenset[Policy], ProviderFactory]   # kind, supported policies, opens the provider
+DnsLogRef = tuple[str, ProviderFactory]                     # kind, opens a provider implementing DnsQueryLog
 
-def provider_factory(db: Session, role: Role) -> Callable[[], AbstractContextManager[Any]] | None:
+
+def provider_factory(db: Session, role: Role) -> ProviderFactory | None:
     rc = load_role(db, role)
     if rc is None:
         return None
     return lambda: rc.spec.open(rc.config)
+
+
+def label(kind: str) -> str:
+    try:
+        return registry.get_spec(kind).label
+    except registry.UnknownProvider:
+        return kind
+
+
+def _with(db: Session, role: Role, cap: Capability) -> RoleConfig | None:
+    rc = load_role(db, role)
+    return rc if rc is not None and cap in role_capabilities(rc.spec, role) else None
+
+
+def reservation_provider(db: Session) -> DhcpRef | None:
+    """The DHCP provider Janus writes reservations to, or None when no provider holding DHCP can take them."""
+    rc = _with(db, Role.DHCP, Capability.RESERVATIONS)
+    if rc is None:
+        return None
+    return rc.kind, rc.spec.policies, lambda: rc.spec.open(rc.config)
+
+
+def dns_query_log(db: Session) -> DnsLogRef | None:
+    rc = _with(db, Role.DNS, Capability.DNS_QUERY_LOG)
+    if rc is None:
+        return None
+    return rc.kind, lambda: rc.spec.open(rc.config)
+
+
+def dns_probe_host(db: Session) -> str | None:
+    """Host the sentinel probes with DNS queries, or None when the DNS provider cannot be probed."""
+    rc = _with(db, Role.DNS, Capability.DNS_PROBE)
+    if rc is None:
+        return None
+    try:
+        with rc.spec.open(rc.config) as provider:
+            return provider.probe_host() if isinstance(provider, DnsProbe) else None
+    except ProviderError:
+        log.exception("could not read the DNS probe host from %s", rc.spec.label)
+        return None
 
 
 def has_capability(db: Session, role: Role, cap: Capability) -> bool:

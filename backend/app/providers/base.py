@@ -131,6 +131,7 @@ class ProviderSpec:
     secret_fields: frozenset[str] = frozenset()
     env_defaults: Callable[[], dict[str, Any]] = dict
     router: APIRouter | None = None             # mounted at /api/providers/<kind>
+    cli: Callable[[Any], None] | None = None    # adds `janus` subcommands to an argparse subparsers object
     description: str = ""
     docs_url: str = ""
 

@@ -3,12 +3,19 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 
+from app.config import settings
 from app.events import record_event
 from app.models import Access, Device, Event, Group, NotificationRule, Setting, Sighting
 from app.notify.debounce import MemoryDebouncer
 from app.notify.store import default_rule_rows
-from app.worker import dispatch_once, presence_once, reconcile_once
+from app.providers.base import Policy
+from app.providers.pihole import SPEC
+from app.providers.pihole.provider import PiholeConfig, PiholeProvider
+from app.worker import dhcp_for, dispatch_once, presence_once, reconcile_once
 from tests.fakes import FakePihole
+from tests.fakes_provider import FakeStore
+
+CFG = PiholeConfig(url="http://192.168.1.220:1000", password="pw", lease="24h")
 
 
 def _seed(db):
@@ -25,37 +32,43 @@ def _count(db, kind):
     return db.scalar(select(func.count()).select_from(Event).where(Event.type == kind))
 
 
+def _pihole(fake):
+    return lambda _db: ("pihole", SPEC.policies, lambda: PiholeProvider(fake, CFG))
+
+
 def test_reconcile_dry_run_never_writes(db):
     _seed(db)
     fake = FakePihole()
-    diff = reconcile_once(lambda: nullcontext(db), lambda: fake, lease="24h", apply=False)
-    assert [h.render() for h in diff.to_add] == ["00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"]
+    diff = reconcile_once(lambda: nullcontext(db), _pihole(fake), apply=False)
+    assert [r.mac for r in diff.to_add] == ["00:00:5E:00:53:10"]
     assert fake.writes == []
 
 
 def test_reconcile_apply_writes(db):
     _seed(db)
     fake = FakePihole()
-    reconcile_once(lambda: nullcontext(db), lambda: fake, lease="24h", apply=True)
+    reconcile_once(lambda: nullcontext(db), _pihole(fake), apply=True)
     assert fake.hosts == ["00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"]
 
 
 def test_reconcile_records_single_outage(db):
     _seed(db)
     down = FakePihole(fail=True)
-    assert reconcile_once(lambda: nullcontext(db), lambda: down, lease="24h", apply=True) is None
-    assert reconcile_once(lambda: nullcontext(db), lambda: down, lease="24h", apply=True) is None
+    assert reconcile_once(lambda: nullcontext(db), _pihole(down), apply=True) is None
+    assert reconcile_once(lambda: nullcontext(db), _pihole(down), apply=True) is None
     assert _count(db, "infra.down") == 1
-    reconcile_once(lambda: nullcontext(db), lambda: FakePihole(), lease="24h", apply=True)
+    reconcile_once(lambda: nullcontext(db), _pihole(FakePihole()), apply=True)
     assert _count(db, "infra.up") == 1
-    reconcile_once(lambda: nullcontext(db), lambda: FakePihole(), lease="24h", apply=True)
+    reconcile_once(lambda: nullcontext(db), _pihole(FakePihole()), apply=True)
     assert _count(db, "infra.up") == 1
+    up = db.scalars(select(Event).where(Event.type == "infra.up")).one()
+    assert up.payload["service"] == "dhcp" and up.payload["provider"] == "Pi-hole"
 
 
 def test_reconcile_line_rejection_is_not_an_outage(db):
     _seed(db)
     fake = FakePihole(reject={"00:00:5e:00:53:10,192.168.1.10,laptop-a,24h"})
-    diff = reconcile_once(lambda: nullcontext(db), lambda: fake, lease="24h", apply=True)
+    diff = reconcile_once(lambda: nullcontext(db), _pihole(fake), apply=True)
     assert diff is not None and len(diff.failed) == 1
     assert _count(db, "infra.down") == 0
     assert _count(db, "sync.failed") == 1
@@ -65,10 +78,56 @@ def test_reconcile_keeps_partial_log_when_pihole_drops(db):
     _seed(db)
     stale = "00:00:5e:00:53:10,192.168.1.12,laptop-a,24h"
     fake = FakePihole([stale], drop_after_writes=1)
-    assert reconcile_once(lambda: nullcontext(db), lambda: fake, lease="24h", apply=True) is None
+    assert reconcile_once(lambda: nullcontext(db), _pihole(fake), apply=True) is None
     assert _count(db, "infra.down") == 1
     applied = db.scalar(select(Event).where(Event.type == "sync.applied"))
     assert applied.payload["removed"] == [stale]
+
+
+def test_reconcile_without_dhcp_provider_is_noop(db):
+    _seed(db)
+    assert reconcile_once(lambda: nullcontext(db), lambda _db: None) is None
+    assert _count(db, "infra.down") == 0
+
+
+def test_reconcile_failure_marks_dhcp_down_with_provider_label(db):
+    _seed(db)
+    factory_for = lambda _db: ("pihole", SPEC.policies, lambda: PiholeProvider(FakePihole(fail=True), CFG))  # noqa: E731
+    reconcile_once(lambda: nullcontext(db), factory_for, apply=True)
+    ev = db.scalars(select(Event).where(Event.type == "infra.down")).one()
+    assert ev.payload["service"] == "dhcp" and ev.payload["provider"] == "Pi-hole"
+    assert db.get(Setting, "dhcp.down_since").value is not None
+
+
+def test_reconcile_config_error_marks_dhcp_down_without_raising(db):
+    _seed(db)
+
+    def broken(_db):
+        raise ValueError("saved config is not valid")
+
+    assert reconcile_once(lambda: nullcontext(db), broken, apply=True) is None
+    ev = db.scalars(select(Event).where(Event.type == "infra.down")).one()
+    assert ev.payload["service"] == "dhcp" and "saved config is not valid" in ev.payload["error"]
+
+
+def test_reconcile_uses_the_policies_of_the_provider(db):
+    _seed(db)
+    store = FakeStore()
+    reconcile_once(lambda: nullcontext(db), lambda _db: ("demo", frozenset({Policy.LAN_ONLY}), lambda: store),
+                   apply=True)
+    assert store.writes == []   # the authorized laptop needs FULL, which this provider does not offer
+
+
+def test_dhcp_for_follows_the_dhcp_role(db, monkeypatch):
+    monkeypatch.setattr(settings, "dhcp_provider", "")
+    monkeypatch.setattr(settings, "dns_provider", "")
+    monkeypatch.setattr(settings, "pihole_url", "http://192.168.1.220:1000")
+    monkeypatch.setattr(settings, "pihole_password", "pw")
+    kind, policies, factory = dhcp_for(db)
+    assert (kind, policies) == ("pihole", SPEC.policies)
+    assert factory().config.url == "http://192.168.1.220:1000"
+    monkeypatch.setattr(settings, "dhcp_provider", "none")
+    assert dhcp_for(db) is None
 
 
 def test_sentinel_heartbeat_outage_is_reported_once(db):

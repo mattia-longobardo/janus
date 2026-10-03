@@ -3,11 +3,12 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.api.sync import get_pihole
 from app.intel.dns import analyze, base_domain, bucket_seconds
 from app.models import Access, Device
 from app.providers.base import DnsQuery
+from app.providers.pihole.provider import PiholeConfig, PiholeProvider
 from tests.fakes import FakePihole
+from tests.fakes_provider import app_override_dns
 
 ROME = ZoneInfo("Europe/Rome")
 
@@ -72,11 +73,11 @@ def test_analysis_endpoint(client, db):
     fake = FakePihole()
     fake.queries = [{"time": time.time() - 30, "domain": "ads.example.net", "status": "GRAVITY", "type": "A",
                      "client": {"ip": "192.168.1.41"}}]
-    client.app.dependency_overrides[get_pihole] = lambda: fake
+    app_override_dns(client, ("pihole", lambda: PiholeProvider(fake, PiholeConfig(url="http://pihole.test"))))
     body = client.get(f"/api/devices/{device.id}/dns/analysis", params={"hours": 72}).json()
     assert body["totals"]["blocked"] == 1
     assert body["hours"] == 72 and len(body["timeline"]) in (72, 73)
     assert fake.last_query["disk"] is True
     assert client.get(f"/api/devices/{device.id}/dns/analysis", params={"hours": 200}).status_code == 422
-    client.app.dependency_overrides[get_pihole] = lambda: FakePihole(fail=True)
+    app_override_dns(client, ("pihole", lambda: PiholeProvider(FakePihole(fail=True), PiholeConfig(url="http://pihole.test"))))
     assert client.get(f"/api/devices/{device.id}/dns/analysis").status_code == 502

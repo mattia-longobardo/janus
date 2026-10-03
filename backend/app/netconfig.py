@@ -4,7 +4,6 @@ from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass, fields, replace
 from ipaddress import AddressValueError, IPv4Address, IPv4Network, NetmaskValueError
 from typing import Any
-from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,7 +24,6 @@ class NetConfig:
     gateway: str
     quarantine_start: str
     quarantine_end: str
-    pihole_url: str
     sentinel_interface: str
     sweep_interval_s: int
     scan_window_start: str
@@ -109,10 +107,6 @@ def validate(cfg: NetConfig, group_ranges: list[tuple[str, IpRange]]) -> NetConf
             raise NetConfigError(f"subnet: group {name} ({rng}) would fall outside {network}")
         if rng.overlaps(pool):
             raise NetConfigError(f"quarantine pool overlaps group {name} ({rng})")
-    url = urlparse(str(cfg.pihole_url).strip())
-    # Empty is allowed: JANUS_PIHOLE_URL has no default any more and the URL now lives in providers.config (C5 drops it).
-    if str(cfg.pihole_url).strip() and (url.scheme not in ("http", "https") or not url.netloc):
-        raise NetConfigError("pihole_url: use an http(s) URL such as http://192.168.1.220:1000")
     if not INTERFACE.match(str(cfg.sentinel_interface)):
         raise NetConfigError("sentinel_interface: letters, digits and . _ : - only (max 32)")
     try:
@@ -126,7 +120,7 @@ def validate(cfg: NetConfig, group_ranges: list[tuple[str, IpRange]]) -> NetConf
             raise NetConfigError(f"{label}: use HH:MM")
     return NetConfig(
         subnet=str(network), gateway=str(gateway), quarantine_start=str(q_start), quarantine_end=str(q_end),
-        pihole_url=str(cfg.pihole_url).strip().rstrip("/"), sentinel_interface=str(cfg.sentinel_interface),
+        sentinel_interface=str(cfg.sentinel_interface),
         sweep_interval_s=sweep, scan_window_start=str(cfg.scan_window_start), scan_window_end=str(cfg.scan_window_end),
     )
 

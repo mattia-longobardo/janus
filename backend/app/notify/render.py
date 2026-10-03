@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 from app.models import Event
 from app.notify.catalog import CATALOG
 
-SERVICE_NAMES = {"pihole": "Pi-hole", "pihole_dns": "Pi-hole DNS", "sentinel": "Scanner"}
+# "pihole" and "pihole_dns" name the services of events recorded before the provider roles existed.
+SERVICE_NAMES = {"dhcp": "DHCP", "dns": "DNS", "pihole": "Pi-hole", "pihole_dns": "Pi-hole DNS", "sentinel": "Scanner"}
 ACCESS_NAMES = {"authorized": "full network", "lan_only": "LAN only"}
 
 
@@ -29,6 +30,8 @@ def render(event: Event, device_name: str | None, *, base_url: str, tz: ZoneInfo
     name = device_name or p.get("name") or event.mac or "device"
     url = f"{base_url}/devices/{p['device_id']}" if p.get("device_id") else base_url
     service = SERVICE_NAMES.get(p.get("service", ""), "Service")
+    if p.get("provider"):
+        service = f"{p['provider']} {service}"
     kind = event.type
 
     if kind == "device.new":
