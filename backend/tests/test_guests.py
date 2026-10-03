@@ -76,3 +76,19 @@ def test_a_pending_mac_is_admitted_but_an_approved_one_is_refused(db):
     assert guests.add_by_mac(db, "00:00:5E:00:53:45", "Guest tablet", None, NOW).id == pending.id
     with pytest.raises(guests.GuestError, match="already a authorized device"):
         guests.add_by_mac(db, "00:00:5E:00:53:46", "Again", None, NOW)
+
+
+def test_activity_before_admission_does_not_count(db):
+    guests.SETTINGS.update(db, {"inactive_remove_hours": 6})
+    d = Device(mac="00:00:5E:00:53:4A", name="Old", hostname="old", access=Access.pending,
+               last_seen=NOW - timedelta(days=3))
+    db.add(d)
+    db.flush()
+    guests.admit(db, d, name="Old", expires=None, now=NOW)
+    assert guests.effective_expiry(d, None, 6) == (NOW + timedelta(hours=6), "inactive")
+    assert guests.expired(db, NOW) == []
+
+
+def test_huge_duration_is_a_guest_error():
+    with pytest.raises(guests.GuestError, match="expiry"):
+        guests.resolve_expiry(now=NOW, tz=ROME, expires_in_hours=1e300)

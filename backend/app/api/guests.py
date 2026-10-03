@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import guests
@@ -22,6 +23,7 @@ from app.settingsstore import SettingsError
 
 router = APIRouter(prefix="/api/guests", tags=["guests"])
 device_router = APIRouter(prefix="/api/devices", tags=["guests"])
+_RACE = "another device already uses that MAC or name: reload and try again"
 
 
 class GuestOut(DeviceOut):
@@ -33,7 +35,7 @@ class GuestOut(DeviceOut):
 
 class ExpiryIn(BaseModel):
     expires_at: datetime | None = None
-    expires_in_hours: float | None = None
+    expires_in_hours: float | None = Field(default=None, allow_inf_nan=False, le=8760 * 10)
     expires_on: date | None = None
 
 
@@ -114,6 +116,9 @@ def add_guest(body: GuestIn, db: Session = Depends(get_db), dhcp: DhcpRef | None
         device = guests.add_by_mac(db, body.mac, body.name, _resolve(db, body, now), now)
     except guests.GuestError as exc:
         raise _unprocessable(exc) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, _RACE) from exc
     commit_or_409(db, "another device already uses that MAC or name: reload and try again")
     _enforce(db, dhcp, None, None)
     return _out(db, device)
@@ -122,8 +127,8 @@ def add_guest(body: GuestIn, db: Session = Depends(get_db), dhcp: DhcpRef | None
 @router.patch("/{guest_id}", response_model=GuestOut)
 def patch_guest(guest_id: uuid.UUID, body: GuestPatch, db: Session = Depends(get_db),
                 dhcp: DhcpRef | None = Depends(get_dhcp)) -> GuestOut:
-    _require_support(dhcp)
     device = _get_guest(db, guest_id)
+    _require_support(dhcp)
     now = datetime.now(UTC)
     try:
         if body.clear_expiry:
@@ -169,6 +174,9 @@ def make_guest(device_id: uuid.UUID, body: GuestAdmitIn, db: Session = Depends(g
         guests.admit(db, device, name=body.name, expires=_resolve(db, body, now), now=now)
     except guests.GuestError as exc:
         raise _unprocessable(exc) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, _RACE) from exc
     commit_or_409(db, "another device already uses that name: reload and try again")
     _enforce(db, dhcp, mac, quarantine_ip)
     return _out(db, device)

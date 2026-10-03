@@ -41,7 +41,10 @@ def resolve_expiry(*, now: datetime, tz: ZoneInfo, expires_at: datetime | None =
         # A naive value is read as local time.
         when = (expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=tz)).astimezone(UTC)
     elif expires_in_hours is not None:
-        when = now + timedelta(hours=expires_in_hours)
+        try:
+            when = now + timedelta(hours=expires_in_hours)
+        except (OverflowError, ValueError) as exc:
+            raise GuestError("expiry: out of range") from exc
     elif expires_on is not None:
         when = datetime.combine(expires_on, time(23, 59, 59), tz).astimezone(UTC)
     else:
@@ -59,8 +62,10 @@ def effective_expiry(device: Device, auto_remove_hours: int | None,
     if auto_remove_hours is not None and device.guest_since is not None:
         candidates.append((device.guest_since + timedelta(hours=auto_remove_hours), "global"))
     if inactive_remove_hours is not None:
-        last = device.last_seen or device.guest_since
-        if last is not None:
+        # Activity from before the device was admitted does not count.
+        seen = [t for t in (device.last_seen, device.guest_since) if t is not None]
+        if seen:
+            last = max(seen)
             candidates.append((last + timedelta(hours=inactive_remove_hours), "inactive"))
     if not candidates:
         return None, None

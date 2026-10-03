@@ -80,3 +80,17 @@ def test_pending_device_becomes_guest_through_devices_endpoint(client, db):
     r = client.post(f"/api/devices/{d.id}/guest", json={"name": "Eve phone", "expires_in_hours": 3})
     assert r.status_code == 200 and r.json()["access"] == "guest" and r.json()["name"] == "Eve phone"
     assert client.post(f"/api/devices/{d.id}/guest", json={"name": "again"}).status_code == 422
+
+
+def test_absurd_durations_are_422(client):
+    app_override_dhcp(client, None)
+    for hours in ("1e300", "1e9"):
+        r = client.post("/api/guests", content=f'{{"mac": "00:00:5E:00:53:57", "name": "X", "expires_in_hours": {hours}}}',
+                        headers={"content-type": "application/json"})
+        assert r.status_code == 422
+
+
+def test_patch_unknown_guest_is_404_even_without_guest_support(client):
+    import uuid as _uuid
+    app_override_dhcp(client, ("demo", frozenset({Policy.FULL}), lambda: FakeStore()))
+    assert client.patch(f"/api/guests/{_uuid.uuid4()}", json={"name": "Z"}).status_code == 404
