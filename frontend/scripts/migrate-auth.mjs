@@ -25,6 +25,8 @@ const auth = betterAuth({
   emailAndPassword: { enabled: true },
   user: { additionalFields: { source: { type: "string", defaultValue: "oidc", input: false } } },
   plugins: [username(), admin({ defaultRole: "user" })],
+  // The tables are about to be created: skip the start-up schema check.
+  advanced: { database: { validateSchema: false } },
 });
 
 const { toBeCreated, toBeAdded, toBeAddedIndexes, runMigrations } = await getMigrations(auth.options);

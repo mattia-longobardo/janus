@@ -17,12 +17,15 @@ function respond(body: unknown, status = 200) {
 
 describe("fetchAuthConfig", () => {
   beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-03T12:00:00Z"));
   });
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("reads the internal endpoint with the internal token and caches it for 15 s", async () => {
@@ -61,6 +64,25 @@ describe("fetchAuthConfig", () => {
     fetcher.mockImplementation(async () => respond({ providers: "nope" }));
     vi.advanceTimersByTime(15_001);
     expect(await fetchAuthConfig()).toEqual(GOOD);
+  });
+
+  it("logs a failure once per transition, without the response body", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const fetcher = vi.fn(async () => respond({ detail: "secret-ish body" }, 503));
+    vi.stubGlobal("fetch", fetcher);
+    const { fetchAuthConfig } = await load();
+
+    await fetchAuthConfig();
+    vi.advanceTimersByTime(15_001);
+    await fetchAuthConfig();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toBe("auth-config: HTTP 503; using the offline sign-in configuration");
+
+    fetcher.mockImplementation(async () => respond(GOOD));
+    vi.advanceTimersByTime(15_001);
+    await fetchAuthConfig();
+    expect(info).toHaveBeenCalledTimes(1);
   });
 });
 

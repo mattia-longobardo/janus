@@ -18,6 +18,7 @@ const OFFLINE: AuthConfig = { allowed_emails: [], providers: [], version: "offli
 let lastGood: AuthConfig | null = null;
 let cached: { at: number; config: AuthConfig } | null = null;
 let inflight: Promise<AuthConfig> | null = null;
+let failing = false;
 
 function isAuthConfig(value: unknown): value is AuthConfig {
   const v = value as Partial<AuthConfig> | null;
@@ -31,14 +32,21 @@ async function load(): Promise<AuthConfig> {
       cache: "no-store",
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    if (!response.ok) throw new Error(`auth-config: HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const body: unknown = await response.json();
-    if (!isAuthConfig(body)) throw new Error("auth-config: unexpected response");
+    if (!isAuthConfig(body)) throw new Error("unexpected response");
     lastGood = body;
+    if (failing) console.info("auth-config: backend reachable again");
+    failing = false;
     return body;
-  } catch {
+  } catch (err) {
     // The login form must keep working while the backend is down: serve the
     // last good config, or one with no OIDC providers and an empty allowlist.
+    if (!failing) {
+      const reason = err instanceof Error ? err.message : "request failed";
+      console.warn(`auth-config: ${reason}; using the ${lastGood ? "last good" : "offline"} sign-in configuration`);
+    }
+    failing = true;
     return lastGood ?? OFFLINE;
   }
 }
