@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 export function InfoCard({ title, children, footer, className }: { title: string; children: ReactNode; footer?: ReactNode; className?: string }) {
   return (
@@ -18,13 +18,18 @@ export function InfoRow({ label, value, source, mono = false, labelWidth = 150 }
   mono?: boolean;
   labelWidth?: number;
 }) {
+  // Phones stack the label above the value so the value gets the full width; from sm up the label sits in its own column.
   return (
     <div
-      className="grid items-center gap-3 border-b border-row py-[11px]"
-      style={{ gridTemplateColumns: source === undefined ? `${labelWidth}px 1fr` : `${labelWidth}px 1fr auto` }}
+      className={clsx(
+        "grid items-center gap-x-3 gap-y-1 border-b border-row py-[11px] sm:gap-3",
+        source === undefined ? "grid-cols-1 sm:grid-cols-[var(--label-w)_1fr]" : "grid-cols-[1fr_auto] sm:grid-cols-[var(--label-w)_1fr_auto]",
+      )}
+      style={{ "--label-w": `${labelWidth}px` } as CSSProperties}
     >
-      <span className="text-[13px] text-faint">{label}</span>
-      <span className={clsx("min-w-0 break-words text-sm", mono && "font-mono")}>{value}</span>
+      <span className={clsx("text-[13px] text-faint", source !== undefined && "col-span-2 sm:col-span-1")}>{label}</span>
+      {/* Addresses and other mono tokens wrap only at spaces on phones, never inside the token. */}
+      <span className={clsx("min-w-0 text-sm", mono ? "font-mono break-normal sm:break-words" : "break-words")}>{value}</span>
       {source !== undefined && (
         <span className="whitespace-nowrap rounded-full border border-line2 px-2 py-0.5 text-[11px] text-muted">{source}</span>
       )}
