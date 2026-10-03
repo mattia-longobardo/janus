@@ -150,7 +150,7 @@ function UsersPart({ selfId }: { selfId: string }) {
           );
         })}
       </div>
-      <div className="grid gap-3.5 sm:grid-cols-4 sm:items-end">
+      <div className="grid items-start gap-3.5 sm:grid-cols-2">
         <Field label="Username">
           <input className={inputClass} autoComplete="off" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} />
         </Field>
@@ -163,9 +163,14 @@ function UsersPart({ selfId }: { selfId: string }) {
             <option value="admin">admin</option>
           </select>
         </Field>
-        <Button variant="primary" disabled={!username.trim() || !password} onClick={() => void add()}>
-          Add user
-        </Button>
+        <div className="flex flex-col gap-2">
+          <span aria-hidden className="invisible hidden text-[13px] font-medium sm:block">
+            &nbsp;
+          </span>
+          <Button variant="primary" disabled={!username.trim() || !password} onClick={() => void add()}>
+            Add user
+          </Button>
+        </div>
       </div>
     </div>
   );
