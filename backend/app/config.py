@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://janus:janus@localhost:5432/janus"
     internal_token: str = ""
+    secret_key: str = ""
     pihole_url: str = "http://192.168.1.220:1000"
     pihole_password: str = ""
     subnet: str = "192.168.1.0/24"
