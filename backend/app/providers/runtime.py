@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 ProviderFactory = Callable[[], AbstractContextManager[Any]]
 DhcpRef = tuple[str, frozenset[Policy], ProviderFactory]   # kind, supported policies, opens the provider
 DnsLogRef = tuple[str, ProviderFactory]                     # kind, opens a provider implementing DnsQueryLog
+DHCP_IDENTITY_KEY = "dhcp.identity"
 
 
 def provider_factory(db: Session, role: Role) -> ProviderFactory | None:
@@ -44,6 +45,24 @@ def reservation_provider(db: Session) -> DhcpRef | None:
     if rc is None:
         return None
     return rc.kind, rc.spec.policies, lambda: rc.spec.open(rc.config)
+
+
+def dhcp_identity(db: Session, kind: str) -> str:
+    """Which box holds DHCP: the provider kind plus its URL when it has one."""
+    rc = load_role(db, Role.DHCP)
+    url = getattr(rc.config, "url", None) if rc is not None and rc.kind == kind else None
+    return f"{kind} {url}" if url else kind
+
+
+def record_dhcp_identity(db: Session, kind: str) -> bool:
+    """Remember which box holds DHCP; True when it differs from the one recorded before (the first is only kept).
+    The worker forces dry-run on a change; switching to apply records the box the admin reviewed."""
+    identity = dhcp_identity(db, kind)
+    seen = db.get(Setting, DHCP_IDENTITY_KEY)
+    if seen is not None and seen.value == identity:
+        return False
+    db.merge(Setting(key=DHCP_IDENTITY_KEY, value=identity))
+    return seen is not None
 
 
 def dns_query_log(db: Session) -> DnsLogRef | None:

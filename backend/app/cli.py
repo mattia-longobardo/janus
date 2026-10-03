@@ -10,7 +10,7 @@ from app.importer import import_csv
 from app.netconfig import load_netconfig
 from app.providers import registry
 from app.providers.base import ProviderError
-from app.providers.runtime import reservation_provider
+from app.providers.runtime import record_dhcp_identity, reservation_provider
 from app.syncmode import MODES, set_sync_mode
 
 
@@ -45,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.mode == "apply" and dhcp is None:
                 print("error: no DHCP provider with reservations is configured", file=sys.stderr)
                 return 2
+            if args.mode == "apply":
+                record_dhcp_identity(db, dhcp[0])   # the reviewed box: the worker must not undo this switch
             set_sync_mode(db, args.mode, actor="cli")
             db.commit()
             print(f"sync mode: {args.mode}")

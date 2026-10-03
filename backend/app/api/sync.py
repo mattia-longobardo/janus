@@ -8,7 +8,7 @@ from app.api.roles import get_dhcp
 from app.db import get_db
 from app.enforcement.sync import apply_sync, plan_sync
 from app.providers.base import ProviderError
-from app.providers.runtime import DhcpRef
+from app.providers.runtime import DhcpRef, record_dhcp_identity
 from app.syncmode import SyncMode, set_sync_mode
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -53,6 +53,8 @@ def sync_mode(body: ModeIn, db: Session = Depends(get_db),
     """Provider-neutral enforcement switch; the UI shows it to admins only (the API trusts the internal token)."""
     if body.mode == "apply" and dhcp is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "no DHCP provider with reservations: cannot enforce")
+    if body.mode == "apply":
+        record_dhcp_identity(db, dhcp[0])   # the reviewed box: the worker must not undo this switch
     set_sync_mode(db, body.mode, actor="web")
     db.commit()
     return {"mode": body.mode}

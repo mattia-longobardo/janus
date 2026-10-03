@@ -252,3 +252,61 @@ def test_provider_down_does_not_undo_the_removal(db):
     set_sync_mode(db, "apply", "test")
     assert guests_once(lambda: nullcontext(db), _pihole(FakePihole(fail=True)), now=now) == 1
     assert db.get(Device, g.id) is None and _count(db, "guest.expired") == 1
+
+
+def test_first_reconcile_records_the_dhcp_identity_without_touching_the_mode(db):
+    from app.syncmode import load_sync_mode, set_sync_mode
+
+    _seed(db)
+    set_sync_mode(db, "apply", actor="test")
+    fake = FakePihole()
+    reconcile_once(lambda: nullcontext(db), _pihole(fake))
+    assert db.get(Setting, "dhcp.identity").value.startswith("pihole")
+    assert load_sync_mode(db) == "apply" and fake.hosts   # same provider as recorded: apply goes on
+
+
+def test_a_new_dhcp_identity_forces_dry_run(db, monkeypatch):
+    from app.syncmode import load_sync_mode, set_sync_mode
+
+    monkeypatch.setattr(settings, "dhcp_provider", "")
+    monkeypatch.setattr(settings, "dns_provider", "")
+    monkeypatch.setattr(settings, "pihole_password", "pw")
+    monkeypatch.setattr(settings, "pihole_url", "http://192.168.1.220:1000")
+    _seed(db)
+    set_sync_mode(db, "apply", actor="test")
+    reconcile_once(lambda: nullcontext(db), _pihole(FakePihole()))
+    assert db.get(Setting, "dhcp.identity").value == "pihole http://192.168.1.220:1000"
+
+    monkeypatch.setattr(settings, "pihole_url", "http://192.168.1.221:1000")   # env changed: another box
+    fake = FakePihole()
+    diff = reconcile_once(lambda: nullcontext(db), _pihole(fake))
+    assert load_sync_mode(db) == "dry-run" and fake.writes == [] and diff.to_add
+    assert db.get(Setting, "dhcp.identity").value == "pihole http://192.168.1.221:1000"
+    ev = db.scalars(select(Event).where(Event.type == "sync.mode")).all()[-1]
+    assert ev.payload == {"from": "apply", "to": "dry-run", "actor": "system"}
+
+
+def test_a_different_dhcp_kind_forces_dry_run(db):
+    from app.syncmode import load_sync_mode, set_sync_mode
+
+    _seed(db)
+    reconcile_once(lambda: nullcontext(db), _pihole(FakePihole()))
+    set_sync_mode(db, "apply", actor="test")
+    store = FakeStore()
+    reconcile_once(lambda: nullcontext(db), lambda _db: ("demo", frozenset({Policy.FULL}), lambda: store))
+    assert load_sync_mode(db) == "dry-run" and store.writes == []
+    assert db.get(Setting, "dhcp.identity").value == "demo"
+
+
+def test_switching_to_apply_records_the_reviewed_box_so_reconcile_keeps_it(db, client):
+    from app.syncmode import load_sync_mode
+    from tests.fakes_provider import app_override_dhcp
+
+    _seed(db)
+    reconcile_once(lambda: nullcontext(db), _pihole(FakePihole()))
+    store = FakeStore()
+    demo = ("demo", frozenset({Policy.FULL}), lambda: store)
+    app_override_dhcp(client, demo)   # the admin switched provider and reviewed it before the next reconcile
+    assert client.post("/api/sync/mode", json={"mode": "apply"}).status_code == 200
+    reconcile_once(lambda: nullcontext(db), lambda _db: demo)
+    assert load_sync_mode(db) == "apply" and store.writes

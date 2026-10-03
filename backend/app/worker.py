@@ -26,8 +26,8 @@ from app.notify.dispatcher import Sender, dispatch_pending
 from app.presence import evaluate_presence, purge_sightings
 from app.providers.base import Capability, LeaseControl, ProviderError, Role, role_capabilities
 from app.providers.config import load_role
-from app.providers.runtime import DhcpRef, label, reservation_provider
-from app.syncmode import load_sync_mode, load_sync_mode_with
+from app.providers.runtime import DhcpRef, dhcp_identity, label, record_dhcp_identity, reservation_provider
+from app.syncmode import load_sync_mode, load_sync_mode_with, set_sync_mode
 
 log = logging.getLogger("janus.worker")
 SessionFactory = Callable[[], AbstractContextManager[Session]]
@@ -88,6 +88,11 @@ def reconcile_once(
             return None
         kind, policies, factory = dhcp
         provider = label(kind)
+        if record_dhcp_identity(db, kind):
+            # D9 also for env changes: a different DHCP box is never written to before a review.
+            log.warning("DHCP provider changed to %s: switching to dry-run", dhcp_identity(db, kind))
+            set_sync_mode(db, "dry-run", actor="system")
+            apply = False
         if apply is None:
             apply = load_sync_mode(db) == "apply"
         try:
