@@ -8,6 +8,7 @@ from pathlib import Path
 from redis import Redis
 from sqlalchemy.orm import Session
 
+from app import guests
 from app.config import settings
 from app.db import SessionLocal
 from app.enforcement.reservations import ReservationDiff
@@ -23,7 +24,7 @@ from app.notify.config import build_senders
 from app.notify.debounce import Debouncer, RedisDebouncer
 from app.notify.dispatcher import Sender, dispatch_pending
 from app.presence import evaluate_presence, purge_sightings
-from app.providers.base import Capability, ProviderError, Role, role_capabilities
+from app.providers.base import Capability, LeaseControl, ProviderError, Role, role_capabilities
 from app.providers.config import load_role
 from app.providers.runtime import DhcpRef, label, reservation_provider
 from app.syncmode import load_sync_mode, load_sync_mode_with
@@ -102,6 +103,33 @@ def reconcile_once(
         if not diff.empty:
             log.info("reconcile %s: %s", "applied" if apply else "dry-run", diff.as_dict(store.describe))
         return diff
+
+
+def guests_once(session_factory: SessionFactory, factory_for: Callable[[Session], DhcpRef | None],
+                now: datetime | None = None) -> int:
+    """Remove the guests whose time is up. The removals are committed before the provider is contacted; in apply
+    mode the provider then drops their rows and revokes their leases. A provider error is left to the next
+    reconcile: the guests are gone from Janus either way."""
+    with session_factory() as db:
+        due = guests.expired(db, now or datetime.now(UTC))
+        removed = [(device.mac, guests.remove(db, device, reason="expired")) for device in due]
+        db.commit()
+        if not removed:
+            return 0
+        try:
+            dhcp = factory_for(db)
+            if dhcp is None or load_sync_mode(db) != "apply":
+                return len(removed)
+            kind, policies, factory = dhcp
+            with factory() as store:
+                apply_sync(db, store, kind, policies)
+                if isinstance(store, LeaseControl):
+                    for mac, last_ip in removed:
+                        store.force_renew(mac, last_ip)
+        except ProviderError as exc:
+            log.warning("removing expired guests from the DHCP provider failed, the next reconcile retries: %s", exc)
+        db.commit()
+        return len(removed)
 
 
 DNS_OK_KEY = "dns.last_ok"
@@ -191,6 +219,7 @@ def main() -> None:
         ("dns", 60, lambda: dns_check_once(SessionLocal)),
         ("dispatch", settings.dispatch_interval_s, lambda: dispatch_once(SessionLocal, debouncer)),
         ("identity", settings.identity_interval_s, lambda: identity_once(SessionLocal)),
+        ("guests", settings.guests_interval_s, lambda: guests_once(SessionLocal, dhcp_for)),
     ]
     due = {name: 0.0 for name, _, _ in jobs}
     start_metrics_server(SessionLocal)

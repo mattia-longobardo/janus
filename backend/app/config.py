@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     # --- E --- guest DHCP pool, "" = not defined.
     guest_start: str = ""
     guest_end: str = ""
+    guests_interval_s: int = 60
 
 
 settings = Settings()

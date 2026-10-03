@@ -11,7 +11,7 @@ from app.notify.store import default_rule_rows
 from app.providers.base import Policy
 from app.providers.pihole import SPEC
 from app.providers.pihole.provider import PiholeConfig, PiholeProvider
-from app.worker import dhcp_for, dispatch_once, presence_once, reconcile_once
+from app.worker import dhcp_for, dispatch_once, guests_once, presence_once, reconcile_once
 from tests.fakes import FakePihole
 from tests.fakes_provider import FakeStore
 
@@ -217,3 +217,38 @@ def test_maintenance_start_and_end_are_logged(db):
     for hour, minute in ((4, 55), (5, 1), (5, 5), (5, 20), (5, 25)):
         presence_once(lambda: nullcontext(db), now=datetime(2026, 10, 1, hour, minute, tzinfo=rome))
     assert (_count(db, "maintenance.start"), _count(db, "maintenance.end")) == (1, 1)
+
+
+def _expired_guest(db, mac, name, now):
+    from app import guests
+    return guests.add_by_mac(db, mac, name, now - timedelta(minutes=1), now - timedelta(days=1))
+
+
+def test_guests_once_removes_expired_and_revokes_in_apply(db):
+    from app.syncmode import set_sync_mode
+    now = datetime(2026, 10, 3, 10, 0, tzinfo=UTC)
+    g = _expired_guest(db, "00:00:5E:00:53:70", "Anna", now)
+    g.last_ip = "192.168.1.205"
+    set_sync_mode(db, "apply", "test")
+    fake = FakePihole(hosts=["00:00:5e:00:53:70,set:guest,anna,24h"])
+    assert guests_once(lambda: nullcontext(db), _pihole(fake), now=now) == 1
+    assert db.get(Device, g.id) is None and _count(db, "guest.expired") == 1
+    assert ("remove", "00:00:5e:00:53:70,set:guest,anna,24h") in fake.writes
+    assert ("revoke", "192.168.1.205") in fake.writes
+
+
+def test_guests_once_in_dry_run_only_deletes(db):
+    now = datetime(2026, 10, 3, 10, 0, tzinfo=UTC)
+    g = _expired_guest(db, "00:00:5E:00:53:71", "Ben", now)
+    fake = FakePihole(hosts=["00:00:5e:00:53:71,set:guest,ben,24h"])
+    assert guests_once(lambda: nullcontext(db), _pihole(fake), now=now) == 1
+    assert db.get(Device, g.id) is None and fake.writes == []
+
+
+def test_provider_down_does_not_undo_the_removal(db):
+    from app.syncmode import set_sync_mode
+    now = datetime(2026, 10, 3, 10, 0, tzinfo=UTC)
+    g = _expired_guest(db, "00:00:5E:00:53:72", "Cleo", now)
+    set_sync_mode(db, "apply", "test")
+    assert guests_once(lambda: nullcontext(db), _pihole(FakePihole(fail=True)), now=now) == 1
+    assert db.get(Device, g.id) is None and _count(db, "guest.expired") == 1
