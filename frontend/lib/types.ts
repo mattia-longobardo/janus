@@ -176,3 +176,16 @@ export interface Features {
   providers?: ProvidersFeature;
   guests?: { enabled: boolean };
 }
+
+// --- A ---
+export type ChannelState<V> = { values: V; source: Record<keyof V, "env" | "custom">; ready: boolean };
+export type GotifyValues = { url: string; token: boolean };
+export type EmailValues = {
+  host: string;
+  port: number;
+  security: "ssl" | "starttls" | "none";
+  user: string;
+  password: boolean;
+  sender: string;
+};
+export type ChannelsView = { gotify: ChannelState<GotifyValues>; email: ChannelState<EmailValues> };

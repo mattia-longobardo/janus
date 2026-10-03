@@ -7,6 +7,9 @@ vi.mock("@/lib/use-resource", () => ({
   useResource: () => ({ data: [], error: null, loading: false, reload: async () => {} }),
 }));
 
+// Extra sections load their own data; this file only covers the built-in cards.
+vi.mock("@/app/(app)/settings/sections", () => ({ EXTRA_SECTIONS: [] }));
+
 vi.mock("@/lib/settings-context", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/lib/settings-context")>();
   const settings = { ...mod.DEFAULT_SETTINGS, source: { sweep_interval_s: "custom" } };
