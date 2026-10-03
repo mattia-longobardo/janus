@@ -8,7 +8,13 @@ export const EVENT_TYPES = [
   "maintenance.end", "notify.test", "notify.failed", "import.csv",
 ];
 
-const SERVICES: Record<string, string> = { pihole: "Pi-hole", pihole_dns: "Pi-hole DNS", sentinel: "Scanner" };
+// "pihole" and "pihole_dns" only appear in events recorded before providers became plugins.
+const SERVICES: Record<string, string> = { dhcp: "DHCP", dns: "DNS", pihole: "Pi-hole", pihole_dns: "Pi-hole DNS", sentinel: "Scanner" };
+
+function serviceName(p: Record<string, any>): string {
+  const name = SERVICES[p.service] ?? p.service;
+  return p.provider ? `${p.provider} ${name}` : name;
+}
 
 export function describeEvent(event: Pick<EventItem, "type" | "payload">): string {
   const p = event.payload as Record<string, any>;
@@ -37,13 +43,13 @@ export function describeEvent(event: Pick<EventItem, "type" | "payload">): strin
       }
       return `IP conflict on ${p.ip}`;
     case "infra.down":
-      return `${SERVICES[p.service] ?? p.service} unreachable`;
+      return `${serviceName(p)} unreachable`;
     case "infra.up":
-      return `${SERVICES[p.service] ?? p.service} reachable again`;
+      return `${serviceName(p)} reachable again`;
     case "sync.applied":
-      return `Pi-hole reservations: +${(p.added ?? []).length} −${(p.removed ?? []).length}`;
+      return `DHCP reservations: +${(p.added ?? []).length} −${(p.removed ?? []).length}`;
     case "sync.failed":
-      return `Pi-hole refused ${(p.failed ?? []).length} reservation(s)`;
+      return `The DHCP provider refused ${(p.failed ?? []).length} reservation(s)`;
     case "security.new_port":
       return `New open port ${p.port}/${p.proto}`;
     case "security.risky_service": {

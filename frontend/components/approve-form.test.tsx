@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ApproveForm } from "@/components/approve-form";
+import * as featuresModule from "@/lib/features";
 import { makeDevice, makeGroup } from "@/lib/test-data";
 
 const json = (status: number, body: unknown) =>
@@ -67,5 +68,15 @@ describe("ApproveForm", () => {
     await userEvent.click(screen.getByRole("button", { name: "Block device" }));
     await waitFor(() => expect(onBlocked).toHaveBeenCalled());
     expect(String(fetchSpy.mock.calls[0][0])).toBe("/api/devices/dev-1/block");
+  });
+
+  it("hides LAN only when the DHCP provider cannot enforce it, even as a group default", async () => {
+    const dhcp = { kind: "unifi", label: "UniFi", capabilities: ["reservations"], policies: ["full"], down_since: null };
+    vi.spyOn(featuresModule, "useFeatures").mockReturnValue({ features: { providers: { dhcp, dns: null } }, reload: async () => {} });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(json(200, { ip: "192.168.1.121" }));
+    render(<ApproveForm device={device} groups={groups} onApproved={vi.fn()} />);
+    expect(screen.queryByLabelText("LAN only")).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("Group"), "2");
+    expect((screen.getByLabelText("Full network") as HTMLInputElement).checked).toBe(true);
   });
 });

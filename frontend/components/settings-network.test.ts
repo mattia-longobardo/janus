@@ -4,13 +4,14 @@ import { errorField, networkPatch, toDraft } from "@/components/settings-network
 import { DEFAULT_SETTINGS } from "@/lib/settings-context";
 
 describe("network settings draft", () => {
-  const settings = { ...DEFAULT_SETTINGS, network: { ...DEFAULT_SETTINGS.network, pihole_url: "http://pihole:1000", sentinel_interface: "enp5s0" } };
+  const settings = { ...DEFAULT_SETTINGS, network: { ...DEFAULT_SETTINGS.network, sentinel_interface: "enp5s0" } };
 
   it("sends only changed fields, numbers as numbers, never null", () => {
     const draft = { ...toDraft(settings), sweep_interval_s: "120", gateway: " 192.168.1.1 ", sentinel_interface: "eth1" };
     expect(networkPatch(draft, settings)).toEqual({ sweep_interval_s: 120, sentinel_interface: "eth1" });
     expect(networkPatch(toDraft(settings), settings)).toEqual({});
     expect(Object.values(networkPatch({ ...toDraft(settings), subnet: "" }, settings))).not.toContain(null);
+    expect(Object.keys(toDraft(settings))).not.toContain("pihole_url");
   });
 
   it("maps backend messages to the field they are about", () => {

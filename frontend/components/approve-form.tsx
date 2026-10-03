@@ -5,6 +5,8 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { Button, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
+import { lanOnlyAllowed } from "@/lib/provider-status";
 import type { Access, Approval, Device, Group } from "@/lib/types";
 
 type Choice = Extract<Access, "authorized" | "lan_only" | "blocked">;
@@ -36,8 +38,12 @@ export function ApproveForm({
   const [access, setAccess] = useState<Choice | null>(null);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const { features } = useFeatures();
+  const lanOnly = lanOnlyAllowed(features);
+  const choices = CHOICES.filter((c) => c.value !== "lan_only" || lanOnly);
   const group = groups.find((g) => g.id === groupId);
-  const choice: Choice = access ?? (group?.default_access === "lan_only" ? "lan_only" : "authorized");
+  const fallback: Choice = group?.default_access === "lan_only" && lanOnly ? "lan_only" : "authorized";
+  const choice: Choice = access && choices.some((c) => c.value === access) ? access : fallback;
 
   async function nextFree(id: number) {
     try {
@@ -132,7 +138,7 @@ export function ApproveForm({
       </div>
       <fieldset className="flex flex-col gap-2.5">
         <legend className="mb-2.5 text-[13px] font-medium text-text2">Access</legend>
-        {CHOICES.map((option) => (
+        {choices.map((option) => (
           <label
             key={option.value}
             className={clsx(

@@ -13,8 +13,10 @@ import { EventList } from "@/components/event-list";
 import { Button, Card, Field, IconTile, Notice, StatusDot, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
 import { deleteDevice } from "@/lib/delete-device";
+import { useFeatures } from "@/lib/features";
 import { ACCESS_LABELS, formatDateTime, relativeTime } from "@/lib/format";
 import { deviceLook } from "@/lib/group-icons";
+import { hasCapability, lanOnlyAllowed } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Access, Approval, Device, DnsActivity, EventItem, Facts, Group, ServiceItem } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
@@ -45,12 +47,15 @@ export default function DevicePage() {
   const [fromMap, setFromMap] = useState(false);
   useEffect(() => setFromMap(new URLSearchParams(window.location.search).get("from") === "map"), []);
   const { settings } = useSettings();
+  const { features } = useFeatures();
+  const dnsLog = hasCapability(features, "dns", "dns_query_log");
+  const dnsLabel = features?.providers?.dns?.label ?? "DNS";
   const deviceRes = useResource<Device>(`/devices/${id}`, { refreshMs: 15_000 });
   const groupsRes = useResource<Group[]>("/groups");
   const factsRes = useResource<Facts>(`/devices/${id}/facts`);
   const servicesRes = useResource<ServiceItem[]>(`/devices/${id}/services`, { refreshMs: 15_000 });
   const device = deviceRes.data;
-  const dnsDayRes = useResource<DnsActivity>(device?.last_ip ? `/devices/${id}/dns?hours=24` : null);
+  const dnsDayRes = useResource<DnsActivity>(dnsLog && device?.last_ip ? `/devices/${id}/dns?hours=24` : null);
   const eventsRes = useResource<EventItem[]>(device?.mac ? `/events?mac=${encodeURIComponent(device.mac)}&limit=20` : null);
   const [editing, setEditing] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string }>();
@@ -191,7 +196,7 @@ export default function DevicePage() {
             }
             source="ARP"
           />
-          <InfoRow label="Reserved IP" mono value={device.static_ip ?? "none (dynamic)"} source="Pi-hole" />
+          <InfoRow label="Reserved IP" mono value={device.static_ip ?? "none (dynamic)"} source={features?.providers?.dhcp?.label ?? "Janus"} />
           <InfoRow label="MAC" mono value={`${device.mac ?? "—"}${device.private_mac ? " (private)" : ""}`} source="ARP" />
           {device.dhcp_hostname && <InfoRow label="DHCP name" mono value={device.dhcp_hostname} source="DHCP" />}
           <InfoRow label="Access" value={ACCESS_LABELS[device.access]} source="Janus" />
@@ -201,16 +206,18 @@ export default function DevicePage() {
         </InfoCard>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className={clsx("grid grid-cols-2 gap-4", dnsLog ? "lg:grid-cols-4" : "lg:grid-cols-3")}>
         <StatCard label="Risk" value={risk} tone={RISK_TONE[risk]} note={`${risky.length} finding${risky.length === 1 ? "" : "s"}`} />
         <StatCard label="Open ports" value={services.length} note={device.last_scan_at ? `last scan ${when(device.last_scan_at)}` : "not scanned yet"} />
         <StatCard label="Risky services" value={risky.length} tone={risky.length ? "text-bad" : "text-ok"} note={mutedCount ? `${mutedCount} muted · no alerts` : "telnet, FTP, VNC, databases, UPnP…"} />
-        <StatCard
-          label="DNS queries 24 h"
-          value={dnsDayRes.data ? dnsDayRes.data.total : "—"}
-          tone="text-ok"
-          note={dnsDayRes.data ? `${dnsDayRes.data.blocked} blocked by Pi-hole` : device.last_ip ? "Pi-hole not reachable" : "no IP known"}
-        />
+        {dnsLog && (
+          <StatCard
+            label="DNS queries 24 h"
+            value={dnsDayRes.data ? dnsDayRes.data.total : "—"}
+            tone="text-ok"
+            note={dnsDayRes.data ? `${dnsDayRes.data.blocked} blocked by ${dnsLabel}` : device.last_ip ? `${dnsLabel} not reachable` : "no IP known"}
+          />
+        )}
       </div>
 
       <section className="rounded-[14px] border border-line bg-card px-6 py-5">
@@ -265,8 +272,8 @@ export default function DevicePage() {
         )}
       </section>
 
-      <div className="grid items-stretch gap-5 lg:grid-cols-[1.4fr_1fr]">
-        <DnsCard device={device} />
+      <div className={clsx("grid items-stretch gap-5", dnsLog && "lg:grid-cols-[1.4fr_1fr]")}>
+        {dnsLog && <DnsCard device={device} />}
         <section className="rounded-[14px] border border-line bg-card px-6 py-5">
           <h2 className="mb-3 font-display text-[19px] font-bold">What to do</h2>
           <ul className="flex flex-col gap-3">
@@ -338,6 +345,8 @@ function EditDevice({ device, groups, onSaved }: { device: Device; groups: Group
   const [access, setAccess] = useState<Access>(device.access);
   const [error, setError] = useState<string>();
   const router = useRouter();
+  const { features } = useFeatures();
+  const lanOnly = lanOnlyAllowed(features);
 
   async function remove() {
     try {
@@ -400,7 +409,7 @@ function EditDevice({ device, groups, onSaved }: { device: Device; groups: Group
         </Field>
         <Field label="Access">
           <select className={inputClass} value={access} onChange={(e) => setAccess(e.target.value as Access)}>
-            {(["authorized", "lan_only", "blocked"] as Access[]).map((value) => (
+            {(["authorized", "lan_only", "blocked"] as Access[]).filter((v) => v !== "lan_only" || lanOnly || device.access === "lan_only").map((value) => (
               <option key={value} value={value}>
                 {ACCESS_LABELS[value]}
               </option>

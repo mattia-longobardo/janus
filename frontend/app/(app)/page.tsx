@@ -10,22 +10,17 @@ import { DeviceTable } from "@/components/device-table";
 import { PendingLinkCard, QuickApproveCard } from "@/components/overview-quick-approve";
 import { Badge, Button, Card, Chip, Notice } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import { filterDevices } from "@/lib/filter";
 import { formatDateTime } from "@/lib/format";
+import { hasCapability, providerSummary } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Approval, Device, Group } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return url;
-  }
-}
-
 export default function OverviewPage() {
   const { settings } = useSettings();
+  const { features } = useFeatures();
   const devicesRes = useResource<Device[]>("/devices", { refreshMs: 15_000 });
   const groupsRes = useResource<Group[]>("/groups");
   const [query, setQuery] = useState("");
@@ -57,12 +52,16 @@ export default function OverviewPage() {
   const groupChips = groups
     .map((g) => ({ group: g, count: searched.filter((d) => d.group_id === g.id).length }))
     .filter((chip) => chip.count > 0);
-  const quarantine = settings.sync_mode === "apply";
+  // Quarantine wording only makes sense when the DHCP provider can park unknown devices in a pool.
+  const canQuarantine = hasCapability(features, "dhcp", "quarantine");
+  const quarantine = canQuarantine && settings.sync_mode === "apply";
+  const pendingNote = quarantine ? "in quarantine" : settings.sync_mode === "apply" ? "detected" : "detected · dry-run";
+  const summary = providerSummary(features);
 
   const stats = [
     { label: "Registered", value: approved.length, note: "from the IP plan", tone: "text-text" },
     { label: "Online now", value: online, note: `${approved.length - online} offline`, tone: "text-ok" },
-    { label: "Pending", value: pending.length, note: quarantine ? "in quarantine" : "detected · dry-run", tone: "text-accent-text" },
+    { label: "Pending", value: pending.length, note: pendingNote, tone: "text-accent-text" },
     { label: "Blocked", value: blocked.length, note: "MAC denied", tone: "text-bad" },
   ];
 
@@ -103,7 +102,8 @@ export default function OverviewPage() {
         <div className="flex min-w-0 flex-col gap-1.5">
           <h1 className="font-display text-4xl font-bold tracking-[-0.02em]">Home network</h1>
           <p className="font-mono text-[13px] text-faint">
-            {settings.network.subnet} · gateway {settings.network.gateway} · DNS/DHCP Pi-hole {hostOf(settings.network.pihole_url)}
+            {settings.network.subnet} · gateway {settings.network.gateway}
+            {summary ? ` · ${summary}` : ""}
           </p>
         </div>
         <label className="flex h-11 w-[260px] items-center gap-2 rounded-lg border border-line2 bg-card px-3.5 text-faint">
@@ -166,9 +166,11 @@ export default function OverviewPage() {
               <Clock3 className="size-5 text-accent-text" aria-hidden />
               <h2 className="font-display text-xl font-bold">New devices waiting for approval</h2>
             </div>
-            <span className="text-[13px] text-accent-text">
-              {quarantine ? "No internet access until you approve them" : "Detected — quarantine starts at the DHCP cutover"}
-            </span>
+            {canQuarantine && (
+              <span className="text-[13px] text-accent-text">
+                {quarantine ? "No internet access until you approve them" : "Detected — quarantine starts at the DHCP cutover"}
+              </span>
+            )}
           </div>
           {pending.map((d) => (
             <div

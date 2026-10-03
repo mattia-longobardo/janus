@@ -4,7 +4,6 @@ import clsx from "clsx";
 import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { CutoverReadiness } from "@/components/cutover-readiness";
 import { type NetDraft, errorField, networkPatch, toDraft } from "@/components/settings-network";
 import { REPEATS, nextRun, zoneLabel } from "@/components/settings-schedule";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -12,6 +11,7 @@ import { Button, Checkbox, Field, Notice, PageHeader, inputClass } from "@/compo
 import { ApiError, api, errorText } from "@/lib/api";
 import { DAY_NAMES, describeDays, hasDay, toggleDay } from "@/lib/days";
 import { useFeatures } from "@/lib/features";
+import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { AppSettings, MaintenanceWindow, NetworkField } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
@@ -20,12 +20,11 @@ import { EXTRA_SECTIONS } from "./sections";
 import { SectionCard } from "./sections/section-card";
 
 const DURATIONS = [5, 10, 15, 30, 45, 60, 90, 120];
-const NET_LAYOUT: { field: NetworkField; label: string; type?: "text" | "time" | "number"; suffix?: string; wide?: boolean }[] = [
+const NET_LAYOUT: { field: NetworkField; label: string; type?: "text" | "time" | "number"; suffix?: string }[] = [
   { field: "subnet", label: "Subnet" },
   { field: "gateway", label: "Gateway" },
   { field: "sentinel_interface", label: "Interface" },
   { field: "sweep_interval_s", label: "ARP sweep every", type: "number", suffix: "s" },
-  { field: "pihole_url", label: "Pi-hole API", wide: true },
   { field: "quarantine_start", label: "Quarantine from" },
   { field: "quarantine_end", label: "Quarantine to" },
   { field: "scan_window_start", label: "Port scans from", type: "time" },
@@ -171,6 +170,7 @@ export default function SettingsPage() {
 
   const applying = settings.sync_mode === "apply";
   const q = settings.network;
+  const dhcp = features?.providers?.dhcp;
 
   return (
     <>
@@ -218,8 +218,8 @@ export default function SettingsPage() {
         <div className="min-w-0">
           <SectionCard title="Network">
             <div className="grid gap-3.5 sm:grid-cols-2">
-              {NET_LAYOUT.map(({ field, label, type, suffix, wide }) => (
-                <div key={field} className={wide ? "sm:col-span-2" : undefined}>
+              {NET_LAYOUT.map(({ field, label, type, suffix }) => (
+                <div key={field}>
                   <NetInput
                     field={field}
                     label={label}
@@ -233,7 +233,7 @@ export default function SettingsPage() {
               ))}
             </div>
             <span className="mt-auto text-xs text-faint">
-              Changing interface, subnet or sweep interval restarts the scanner (a few seconds). The Pi-hole password stays in the server configuration.
+              Changing interface, subnet or sweep interval restarts the scanner (a few seconds).
             </span>
           </SectionCard>
         </div>
@@ -262,22 +262,29 @@ export default function SettingsPage() {
         <div className="min-w-0">
           <SectionCard title="Access control">
             <div className="flex flex-col">
-              <StatusRow
-                title="Quarantine unknown devices"
-                detail={
-                  applying
-                    ? `Pool .${q.quarantine_start.split(".")[3]}–.${q.quarantine_end.split(".")[3]} · no gateway`
-                    : "dry-run — enforced after the Pi-hole DHCP cutover"
-                }
-                on={applying}
-              />
+              {hasCapability(features, "dhcp", "quarantine") && (
+                <StatusRow
+                  title="Quarantine unknown devices"
+                  detail={
+                    applying
+                      ? `Pool .${q.quarantine_start.split(".")[3]}–.${q.quarantine_end.split(".")[3]} · no gateway`
+                      : "dry-run — enforced after the DHCP cutover"
+                  }
+                  on={applying}
+                />
+              )}
               <StatusRow title="ARP isolation" detail="Planned · also cuts off devices that set a manual static IP" on={false} />
               <StatusRow
-                title="Pi-hole sync"
-                detail={applying ? "apply — Janus writes reservations to Pi-hole" : "dry-run — Janus only compares with Pi-hole"}
-                on={applying}
+                title="Enforcement"
+                detail={
+                  !dhcp
+                    ? "no network provider — Janus only records approvals"
+                    : applying
+                      ? `apply — Janus writes reservations to ${dhcp.label}`
+                      : `dry-run — Janus only compares with ${dhcp.label}`
+                }
+                on={applying && Boolean(dhcp)}
               />
-              <CutoverReadiness />
             </div>
           </SectionCard>
         </div>

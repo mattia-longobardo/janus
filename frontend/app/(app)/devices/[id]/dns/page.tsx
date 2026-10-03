@@ -7,7 +7,9 @@ import { useMemo, useState } from "react";
 
 import { Badge, Notice, Pagination, Segmented } from "@/components/ui";
 import { busiest, filterDomains, sortDomains, type DnsAnalysis, type DnsBucket, type DomainSortKey } from "@/lib/dns-types";
+import { useFeatures } from "@/lib/features";
 import { formatDateTime } from "@/lib/format";
+import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Device } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
@@ -108,8 +110,11 @@ export default function DnsAnalysisPage() {
   const [sort, setSort] = useState<{ key: DomainSortKey; dir: "asc" | "desc" }>({ key: "count", dir: "desc" });
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
+  const { features } = useFeatures();
+  const dnsLog = hasCapability(features, "dns", "dns_query_log");
+  const dnsLabel = features?.providers?.dns?.label ?? "DNS";
   const deviceRes = useResource<Device>(`/devices/${id}`);
-  const dnsRes = useResource<DnsAnalysis>(deviceRes.data?.last_ip ? `/devices/${id}/dns/analysis?hours=${period}` : null);
+  const dnsRes = useResource<DnsAnalysis>(dnsLog && deviceRes.data?.last_ip ? `/devices/${id}/dns/analysis?hours=${period}` : null);
   const data = dnsRes.data;
   const device = deviceRes.data;
 
@@ -136,7 +141,7 @@ export default function DnsAnalysisPage() {
         <div className="flex flex-col gap-1.5">
           <h1 className="font-display text-[32px] font-bold tracking-[-0.02em] lg:text-4xl">DNS activity</h1>
           <p className="font-mono text-[13px] text-faint">
-            {device ? `${device.name} · ${device.last_ip ?? "no IP"}` : "…"} · from Pi-hole query log
+            {device ? `${device.name} · ${device.last_ip ?? "no IP"}` : "…"} · from {dnsLabel} query log
           </p>
         </div>
         <Segmented
@@ -151,11 +156,12 @@ export default function DnsAnalysisPage() {
       </header>
 
       {deviceRes.error && <Notice tone="error">{deviceRes.error}</Notice>}
-      {device && !device.last_ip && <Notice>This device has no known IP address yet, so there is no DNS activity to show.</Notice>}
+      {features && !dnsLog && <Notice>No DNS provider with a query log is configured. Pick one in Settings → Network providers.</Notice>}
+      {dnsLog && device && !device.last_ip && <Notice>This device has no known IP address yet, so there is no DNS activity to show.</Notice>}
       {dnsRes.error && <Notice tone="error">{dnsRes.error}</Notice>}
       {data?.totals.truncated && (
         <Notice>
-          Pi-hole logged {data.totals.total} queries in this period; the breakdown below uses the latest {data.totals.sampled}.
+          {dnsLabel} logged {data.totals.total} queries in this period; the breakdown below uses the latest {data.totals.sampled}.
         </Notice>
       )}
       {dnsRes.loading && device?.last_ip && !data && <p className="text-sm text-muted">Loading…</p>}
@@ -281,7 +287,7 @@ export default function DnsAnalysisPage() {
                 <BarList rows={data.query_types.map((t) => ({ label: t.type, count: t.count }))} tone="bg-accent" />
                 {data.statuses.length > 0 && (
                   <>
-                    <h3 className="mb-2 mt-5 text-[13px] font-semibold text-text2">How Pi-hole answered</h3>
+                    <h3 className="mb-2 mt-5 text-[13px] font-semibold text-text2">How {dnsLabel} answered</h3>
                     <BarList rows={data.statuses.map((s) => ({ label: s.status.toLowerCase(), count: s.count }))} tone="bg-line2" />
                   </>
                 )}

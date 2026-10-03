@@ -10,6 +10,7 @@ import { describeDays } from "@/lib/days";
 import { useFeatures } from "@/lib/features";
 import { relativeTime } from "@/lib/format";
 import { visibleNav } from "@/lib/nav";
+import { providerNav, providerPill } from "@/lib/provider-status";
 import { nextScanIn, useNow } from "@/lib/use-now";
 import { useSettings } from "@/lib/settings-context";
 import type { Device, MaintenanceWindow } from "@/lib/types";
@@ -38,13 +39,7 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
   const { data: windows } = useResource<MaintenanceWindow[]>("/maintenance-windows");
   const maint = windows?.find((w) => w.enabled);
   const { status } = settings;
-  const pihole = status.dns_down_since
-    ? { tone: "bg-bad", text: "Pi-hole DNS down" }
-    : status.pihole_down_since
-    ? { tone: "bg-bad", text: "Pi-hole unreachable" }
-    : settings.sync_mode === "apply"
-      ? { tone: "bg-ok", text: "Pi-hole DHCP · active" }
-      : { tone: "bg-accent", text: "Pi-hole · dry-run" };
+  const pill = providerPill(features, settings.sync_mode);
   const counts = {
     all: devices?.filter((d) => d.access !== "pending").length ?? 0,
     pending: devices?.filter((d) => d.access === "pending").length ?? 0,
@@ -68,7 +63,7 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
           </button>
         </div>
         <ul className="flex flex-col gap-[3px]">
-          {visibleNav(features).map((item) => {
+          {visibleNav(features, providerNav(features)).map((item) => {
             const Icon = item.icon;
             const count = item.count ? counts[item.count as keyof typeof counts] : undefined;
             const active = isActive(item.href);
@@ -102,8 +97,8 @@ export function Sidebar({ open, onClose, user }: { open: boolean; onClose: () =>
         </ul>
         <div className="mt-auto flex flex-col gap-2.5 rounded-[10px] border border-line p-3.5 text-[13px] text-muted">
           <span className="flex items-center gap-2">
-            <span className={clsx("size-2 rounded-full", pihole.tone)} />
-            {pihole.text}
+            <span className={clsx("size-2 rounded-full", pill.tone)} />
+            {pill.text}
           </span>
           <span className="flex items-center gap-2">
             <span className={clsx("size-2 rounded-full", status.sentinel_down_since ? "bg-bad" : "bg-ok")} />

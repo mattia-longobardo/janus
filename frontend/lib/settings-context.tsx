@@ -14,13 +14,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     gateway: "192.168.1.1",
     quarantine_start: "192.168.1.240",
     quarantine_end: "192.168.1.254",
-    pihole_url: "",
     sentinel_interface: "",
     sweep_interval_s: 60,
   },
   scan_window: { start: "08:00", end: "22:00" },
   source: {},
-  status: { pihole_down_since: null, dns_down_since: null, sentinel_down_since: null, last_sweep_at: null, maintenance_active: false },
+  status: { dhcp_down_since: null, dns_down_since: null, sentinel_down_since: null, last_sweep_at: null, maintenance_active: false },
   channels: { gotify_url: "", email_sender: "" },
 };
 

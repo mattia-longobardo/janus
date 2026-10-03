@@ -1,3 +1,5 @@
+import type { JsonSchema } from "@/providers/types";
+
 export type Access = "authorized" | "lan_only" | "pending" | "blocked";
 
 export interface Device {
@@ -109,7 +111,6 @@ export type NetworkField =
   | "gateway"
   | "quarantine_start"
   | "quarantine_end"
-  | "pihole_url"
   | "sentinel_interface"
   | "sweep_interval_s"
   | "scan_window_start"
@@ -124,14 +125,13 @@ export interface AppSettings {
     gateway: string;
     quarantine_start: string;
     quarantine_end: string;
-    pihole_url: string;
     sentinel_interface: string;
     sweep_interval_s: number;
   };
   scan_window: { start: string; end: string };
   source?: Partial<Record<NetworkField, "env" | "custom">>;
   status: {
-    pihole_down_since: string | null;
+    dhcp_down_since: string | null;
     dns_down_since: string | null;
     sentinel_down_since: string | null;
     last_sweep_at: string | null;
@@ -162,7 +162,9 @@ export interface Approval {
 export interface ProviderRef {
   kind: string;
   label: string;
-  capabilities: string[];
+  capabilities: string[];   // already filtered to the role this ref holds
+  policies?: string[];      // DHCP role only
+  shared?: boolean;         // DNS served by the same connection as DHCP
   down_since: string | null;
 }
 
@@ -175,6 +177,35 @@ export interface Features {
   notify?: { email: boolean; gotify: boolean };
   providers?: ProvidersFeature;
   guests?: { enabled: boolean };
+}
+
+export type ProviderRole = "dhcp" | "dns";
+
+export interface ProviderKind {
+  kind: string;
+  label: string;
+  description: string;
+  docs_url: string;
+  roles: string[];
+  capabilities: string[];
+  policies: string[];
+  schema: JsonSchema;
+  secret_fields: string[];
+}
+
+export interface ProviderRoleView {
+  kind: string;
+  label: string;
+  source: "env" | "custom";
+  shared?: boolean;
+  config: Record<string, unknown>;   // secrets come back as booleans (set or not)
+  schema?: JsonSchema;
+  secret_fields?: string[];
+}
+
+export interface ProvidersList {
+  available: ProviderKind[];
+  roles: Record<ProviderRole, ProviderRoleView | null>;
 }
 
 // --- A ---

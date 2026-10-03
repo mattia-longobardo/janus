@@ -6,7 +6,9 @@ import { useState } from "react";
 
 import { Button, inputClass } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import { formatDateTime } from "@/lib/format";
+import { lanOnlyAllowed } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Approval, Device, Group } from "@/lib/types";
 
@@ -17,6 +19,8 @@ function timeOf(iso: string | null, tz: string, format: "24h" | "12h"): string {
 
 export function QuickApproveCard({ device, groups, onDone }: { device: Device; groups: Group[]; onDone: (text: string) => void }) {
   const { settings } = useSettings();
+  const { features } = useFeatures();
+  const lanOnly = lanOnlyAllowed(features);
   const [name, setName] = useState(device.dhcp_hostname ?? device.name);
   const [groupId, setGroupId] = useState<number | "">("");
   const [error, setError] = useState<string>();
@@ -93,10 +97,12 @@ export function QuickApproveCard({ device, groups, onDone }: { device: Device; g
       <Button variant="primary" className="h-[52px] text-base" disabled={busy} onClick={() => void approve()}>
         Approve
       </Button>
-      <div className="grid grid-cols-2 gap-2.5">
-        <Button disabled={busy} onClick={() => void approve("lan_only")}>
-          LAN only
-        </Button>
+      <div className={lanOnly ? "grid grid-cols-2 gap-2.5" : "grid gap-2.5"}>
+        {lanOnly && (
+          <Button disabled={busy} onClick={() => void approve("lan_only")}>
+            LAN only
+          </Button>
+        )}
         <Button variant="danger" disabled={busy} onClick={() => void block()}>
           Block
         </Button>
