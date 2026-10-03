@@ -23,8 +23,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/3"
     gotify_url: str = ""
     gotify_token: str = ""
-    smtp_host: str = "mx.longobardo.me"
+    smtp_host: str = ""
     smtp_port: int = 465
+    smtp_security: Literal["ssl", "starttls", "none"] = "ssl"
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_sender: str = ""

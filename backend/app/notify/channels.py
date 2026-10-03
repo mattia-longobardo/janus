@@ -48,10 +48,12 @@ class EmailChannel:
         password: str,
         sender: str,
         *,
-        smtp_factory: Callable[..., Any] = smtplib.SMTP_SSL,
+        security: str = "ssl",
+        smtp_factory: Callable[..., Any] | None = None,
     ) -> None:
         self.host, self.port, self.user, self.password, self.sender = host, port, user, password, sender
-        self._factory = smtp_factory
+        self.security = security
+        self._factory = smtp_factory or (smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP)
 
     def ready(self, ns: NotifySettings) -> bool:
         return bool(self.host and self.sender and ns.email_recipient)
@@ -64,6 +66,8 @@ class EmailChannel:
         mail.set_content(message.body + (f"\n\n{message.url}" if message.url else ""))
         try:
             with self._factory(self.host, self.port, timeout=15) as smtp:
+                if self.security == "starttls":
+                    smtp.starttls()
                 if self.user:
                     smtp.login(self.user, self.password)
                 smtp.send_message(mail)

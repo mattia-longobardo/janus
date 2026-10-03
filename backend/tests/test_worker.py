@@ -110,9 +110,9 @@ def test_dispatch_once_delivers(db):
     senders = {"email": Sender(), "gotify": Sender()}
     debouncer = MemoryDebouncer()
     now = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
-    dispatch_once(lambda: nullcontext(db), senders, debouncer, now=now)
+    dispatch_once(lambda: nullcontext(db), debouncer, now=now, sender_factory=lambda db: senders)
     record_event(db, "device.new", "00:00:5E:00:53:40", {"ip": "192.168.1.243"}, ts=now - timedelta(minutes=1))
-    assert dispatch_once(lambda: nullcontext(db), senders, debouncer, now=now) == 1
+    assert dispatch_once(lambda: nullcontext(db), debouncer, now=now, sender_factory=lambda db: senders) == 1
     assert senders["gotify"].sent == ["New device: 00:00:5E:00:53:40"]
 
 

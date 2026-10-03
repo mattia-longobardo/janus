@@ -17,7 +17,7 @@ from app.maintenance import Window, active_windows, load_windows
 from app.metrics import start_metrics_server
 from app.models import Setting
 from app.netconfig import load_netconfig, load_with
-from app.notify.channels import EmailChannel, GotifyChannel
+from app.notify.config import build_senders
 from app.notify.debounce import Debouncer, RedisDebouncer
 from app.notify.dispatcher import Sender, dispatch_pending
 from app.pihole.client import PiholeClient, PiholeError
@@ -127,29 +127,24 @@ def presence_once(session_factory: SessionFactory, now: datetime | None = None) 
 
 
 def dispatch_once(
-    session_factory: SessionFactory, senders: dict[str, Sender], debouncer: Debouncer, now: datetime | None = None
+    session_factory: SessionFactory,
+    debouncer: Debouncer,
+    now: datetime | None = None,
+    *,
+    sender_factory: Callable[[Session], dict[str, Sender]] = build_senders,
 ) -> int:
     with session_factory() as db:
         count = dispatch_pending(
-            db, senders, debouncer, now=now or datetime.now(UTC), tz=current_tz(db), windows=load_windows(db),
+            db, sender_factory(db), debouncer, now=now or datetime.now(UTC), tz=current_tz(db), windows=load_windows(db),
             base_url=settings.base_url, quarantine_active=load_sync_mode(db) == "apply",
         )
         db.commit()
         return count
 
 
-def build_senders() -> dict[str, Sender]:
-    return {
-        "email": EmailChannel(settings.smtp_host, settings.smtp_port, settings.smtp_user, settings.smtp_password,
-                              settings.smtp_sender),
-        "gotify": GotifyChannel(settings.gotify_url, settings.gotify_token),
-    }
-
-
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     heartbeat = Path(settings.heartbeat_path)
-    senders = build_senders()
     debouncer = RedisDebouncer(Redis.from_url(settings.redis_url))
     jobs: list[tuple[str, int, Callable[[], object]]] = [
         ("reconcile", settings.reconcile_interval_s, lambda: reconcile_once(
@@ -157,7 +152,7 @@ def main() -> None:
             lease=settings.reservation_lease)),
         ("presence", settings.presence_interval_s, lambda: presence_once(SessionLocal)),
         ("dns", 60, lambda: dns_check_once(SessionLocal)),
-        ("dispatch", settings.dispatch_interval_s, lambda: dispatch_once(SessionLocal, senders, debouncer)),
+        ("dispatch", settings.dispatch_interval_s, lambda: dispatch_once(SessionLocal, debouncer)),
         ("identity", settings.identity_interval_s, lambda: identity_once(SessionLocal)),
     ]
     due = {name: 0.0 for name, _, _ in jobs}

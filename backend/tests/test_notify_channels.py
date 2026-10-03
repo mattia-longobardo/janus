@@ -121,3 +121,19 @@ def test_email_auth_failure_is_permanent():
     with pytest.raises(NotifyError) as refused:
         channel.send(MESSAGE, NS)
     assert refused.value.permanent is True
+
+
+def test_starttls_upgrades_before_login():
+    calls = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout): calls.append(("connect", host, port))
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def starttls(self): calls.append(("starttls",))
+        def login(self, u, p): calls.append(("login", u))
+        def send_message(self, m): calls.append(("send", m["To"]))
+
+    ch = EmailChannel("smtp.example", 587, "u", "p", "janus@example.org", security="starttls", smtp_factory=FakeSMTP)
+    ch.send(MESSAGE, NS)
+    assert [c[0] for c in calls] == ["connect", "starttls", "login", "send"]
