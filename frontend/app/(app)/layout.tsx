@@ -8,5 +8,7 @@ import { getAllowedSession } from "@/lib/auth/server";
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await getAllowedSession(await headers());
   if (!session) redirect("/login?error=AccessDenied");
-  return <Shell user={session.user.username ?? session.user.name ?? session.user.email}>{children}</Shell>;
+  const { user } = session;
+  const currentUser = { id: user.id, name: user.username ?? user.name ?? user.email, role: user.role ?? null, source: user.source ?? null };
+  return <Shell user={currentUser}>{children}</Shell>;
 }

@@ -4,18 +4,18 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui";
 import { api, errorText } from "@/lib/api";
-import { authClient } from "@/lib/auth/client";
+import { useCurrentUser } from "@/lib/current-user";
 
 type Plan = { to_add: string[]; to_remove: string[]; failed: string[] };
 type Mode = "dry-run" | "apply";
 
 /** Admin-only switch between dry-run and apply; going to apply first shows what the DHCP provider would receive. */
 export function EnforcementSwitch({ mode, hasDhcp, onChanged }: { mode: Mode; hasDhcp: boolean; onChanged: () => Promise<void> | void }) {
-  const { data } = authClient.useSession();
+  const user = useCurrentUser();
   const [plan, setPlan] = useState<Plan | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  if ((data?.user as { role?: string | null } | undefined)?.role !== "admin") return null;
+  if (user?.role !== "admin") return null;
 
   async function run(action: () => Promise<void>) {
     setBusy(true);

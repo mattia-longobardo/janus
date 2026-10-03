@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth/client";
+import * as currentUser from "@/lib/current-user";
 import { SignInSection } from "./sign-in";
 
 vi.mock("@/lib/auth/client", () => ({
   authClient: {
-    useSession: vi.fn(),
     changePassword: vi.fn(),
     admin: { listUsers: vi.fn(), createUser: vi.fn(), removeUser: vi.fn(), setRole: vi.fn(), setUserPassword: vi.fn() },
   },
@@ -22,8 +22,8 @@ const SETTINGS = {
   ],
 };
 
-function mockSession(user: Record<string, unknown>) {
-  vi.mocked(authClient.useSession).mockReturnValue({ data: { user } } as never);
+function mockSession(user: { id: string; role: string; source: string }) {
+  vi.spyOn(currentUser, "useCurrentUser").mockReturnValue({ name: user.id, ...user });
 }
 function mockUsers(users: Record<string, unknown>[]) {
   vi.mocked(authClient.admin.listUsers).mockResolvedValue({ data: { users, total: users.length }, error: null } as never);

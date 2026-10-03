@@ -14,7 +14,7 @@ const zIndex = (el: Element) => Number(/(?:^| )z-(\d+)/.exec(el.className)?.[1])
 
 describe("Shell mobile menu", () => {
   it("opens the drawer over the sticky header with a backdrop, and closes from the backdrop", async () => {
-    render(<Shell user="mattia">page</Shell>);
+    render(<Shell user={{ id: "u1", name: "mattia", role: "admin", source: "local" }}>page</Shell>);
     const drawer = screen.getByRole("navigation", { name: "Main" });
     expect(drawer.className).toContain("-translate-x-full");
     expect(screen.getAllByRole("button", { name: "Close menu" })).toHaveLength(1);

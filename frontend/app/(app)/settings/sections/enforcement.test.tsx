@@ -3,12 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
-import { authClient } from "@/lib/auth/client";
+import * as currentUser from "@/lib/current-user";
 import { EnforcementSwitch } from "./enforcement";
 
-vi.mock("@/lib/auth/client", () => ({ authClient: { useSession: vi.fn() } }));
-
-const asRole = (role: string) => vi.mocked(authClient.useSession).mockReturnValue({ data: { user: { id: "a", role } } } as never);
+const asRole = (role: string) => vi.spyOn(currentUser, "useCurrentUser").mockReturnValue({ id: "a", name: "a", role, source: "local" });
 
 beforeEach(() => vi.restoreAllMocks());
 

@@ -6,6 +6,7 @@ import { Badge, Button, Checkbox, Field, Notice, SCROLL_TARGET, inputClass } fro
 import { api, errorText } from "@/lib/api";
 import { authClient } from "@/lib/auth/client";
 import { canRemoveOrDemote } from "@/lib/auth/last-admin";
+import { useCurrentUser } from "@/lib/current-user";
 import { SecretInput } from "@/lib/secret-input";
 import type { AuthSettings } from "@/lib/types";
 import { useResource } from "@/lib/use-resource";
@@ -316,8 +317,7 @@ function ChangePasswordPart() {
 }
 
 export function SignInSection() {
-  const { data } = authClient.useSession();
-  const user = data?.user as (Account & { source?: string | null }) | undefined;
+  const user = useCurrentUser();
   if (!user) return <p className="text-sm text-muted">Loading…</p>;
   return (
     <div id="sign-in" className={`flex flex-col gap-6 ${SCROLL_TARGET}`}>
