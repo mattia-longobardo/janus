@@ -5,6 +5,20 @@ import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNo
 export const inputClass =
   "h-11 w-full rounded-lg border border-line2 bg-bg px-3 text-[15px] text-text outline-none focus:border-accent";
 
+// An input with its unit drawn inside, on the right (e.g. "h", "s").
+export function SuffixInput({ suffix, className, ...props }: InputHTMLAttributes<HTMLInputElement> & { suffix?: string }) {
+  return (
+    <div className="relative">
+      <input className={clsx(inputClass, suffix && "pr-8", className)} {...props} />
+      {suffix && (
+        <span data-suffix aria-hidden className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-sm text-faint">
+          {suffix}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div className={clsx("rounded-[14px] border border-line bg-card", className)} {...props} />;
 }

@@ -6,7 +6,7 @@ import type { CSSProperties } from "react";
 import { devicesCsv } from "@/components/ip-plan-export";
 import { Button, Card, Notice, PageHeader } from "@/components/ui";
 import { useFeatures } from "@/lib/features";
-import { GUEST_COLOR, PENDING_COLOR } from "@/lib/group-icons";
+import { PENDING_COLOR, guestLook } from "@/lib/group-icons";
 import { buildCells, guestPool, inPool, lastOctet, poolUsage, rangeUsage, type Cell } from "@/lib/ipplan";
 import { hasCapability } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
@@ -28,6 +28,7 @@ export default function IpPlanPage() {
   const { settings } = useSettings();
   const { features } = useFeatures();
   const quarantine = hasCapability(features, "dhcp", "quarantine");
+  const guestColor = guestLook(features).color;
   // The pool only matters while guests are on; guests are not in /devices, so they come from their own list.
   const pool = features?.guests?.enabled ? guestPool(settings.network) : null;
   const guestsRes = useResource<Device[]>(pool ? "/devices?access=guest" : null);
@@ -48,7 +49,7 @@ export default function IpPlanPage() {
     if (cell.device) return solid(cell.group?.color ?? GATEWAY_COLOR);
     if (cell.group) return tint(cell.group.color);
     if (quarantine && cell.octet >= qStart && cell.octet <= qEnd) return tint(PENDING_COLOR);
-    if (inPool(cell.octet, pool)) return tint(GUEST_COLOR);
+    if (inPool(cell.octet, pool)) return tint(guestColor);
     return UNASSIGNED;
   }
 
@@ -115,7 +116,7 @@ export default function IpPlanPage() {
             )}
             {pool && (
               <span className="flex items-center gap-1.5">
-                <span className="size-3.5 rounded" style={tint(GUEST_COLOR)} />
+                <span className="size-3.5 rounded" style={tint(guestColor)} />
                 guest pool
               </span>
             )}
@@ -165,7 +166,7 @@ export default function IpPlanPage() {
           )}
           {pool && guestUsage && (
             <div className="grid grid-cols-[14px_1fr_auto] items-center gap-3 py-[9px]">
-              <span className="size-3 rounded-[3px]" style={{ background: GUEST_COLOR }} />
+              <span className="size-3 rounded-[3px]" style={{ background: guestColor }} />
               <span className="flex flex-col gap-0.5">
                 <span className="text-sm font-medium">Guests</span>
                 <span className="font-mono text-xs text-faint">

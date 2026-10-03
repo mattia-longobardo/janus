@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 
 import { HealthIcon } from "@/components/health";
 import { Badge, IconTile, Pagination, StatusDot } from "@/components/ui";
-import { deviceLook } from "@/lib/group-icons";
+import { useFeatures } from "@/lib/features";
+import { deviceLook, guestLook } from "@/lib/group-icons";
 import { ACCESS_LABELS, deviceIp, formatDateTime, ipSortKey, relativeTime } from "@/lib/format";
 import { useSettings } from "@/lib/settings-context";
 import type { Device, Group } from "@/lib/types";
@@ -68,6 +69,7 @@ export function DeviceTable({
   onDelete?: (device: Device) => void;
 }) {
   const { settings } = useSettings();
+  const guest = guestLook(useFeatures().features);
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null);
   const [pageSize, setPageSize] = useState(25);
@@ -134,7 +136,7 @@ export function DeviceTable({
           <tbody>
             {shown.map((d) => {
               const g = group(d.group_id);
-              const { Icon, color } = deviceLook(d, groups);
+              const { Icon, color } = deviceLook(d, groups, guest);
               return (
                 <tr key={d.id} className="border-b border-row hover:bg-card2">
                   <td className="px-4 py-2.5">

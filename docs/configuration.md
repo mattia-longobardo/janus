@@ -125,9 +125,11 @@ every client it manages with the note `janus:<policy>`, which **overwrites any n
 
 ### Guests
 
-The guest pool (`network.guest_start`/`guest_end`) and the global rules (`guests.settings`): `auto_remove_hours` (from the time
-the device became a guest) and `inactive_remove_hours` (from `max(last_seen, guest_since)`), each off or 1 to 8760 hours. A
-guest's own expiry replaces both rules. Guests get no static IP, so they are not shown on the map or in the IP plan;
+Edited on the **Groups** page (the Guests row), like a group: colour and icon (`guests.settings` `color`/`icon`, validated
+like a group's; default `#4FC3D9`/`guest`), the guest pool as the range (`network.guest_start`/`guest_end`) and the global
+rules (`guests.settings`): `auto_remove_hours` (from the time the device became a guest) and `inactive_remove_hours` (from
+`max(last_seen, guest_since)`), each off or 1 to 8760 hours. A guest's own expiry replaces both rules. `GET /api/features`
+repeats the colour and icon under `guests` so every page draws guests the same way. Guests get no static IP, so they are not shown on the map or in the IP plan;
 they are listed on the Guests page.
 
 ### Other settings

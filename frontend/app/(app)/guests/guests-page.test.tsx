@@ -46,7 +46,7 @@ describe("GuestsPage", () => {
   it("warns about quarantine addresses only when there is no pool and the provider quarantines", async () => {
     setup({ guests: { enabled: true, pool: false }, providers: { dhcp: DHCP, dns: null } });
     const { unmount } = render(<GuestsPage />);
-    expect(await screen.findByText(/Set a guest pool in Settings → Guests, otherwise guests get quarantine addresses without internet/)).toBeTruthy();
+    expect(await screen.findByText(/Set a guest pool in Groups → Guests, otherwise guests get quarantine addresses without internet/)).toBeTruthy();
     unmount();
     setup({ guests: { enabled: true, pool: false }, providers: { dhcp: { ...DHCP, capabilities: [] }, dns: null } });
     render(<GuestsPage />);

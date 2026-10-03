@@ -15,7 +15,7 @@ import { api, errorText } from "@/lib/api";
 import { deleteDevice } from "@/lib/delete-device";
 import { useFeatures } from "@/lib/features";
 import { ACCESS_LABELS, formatDateTime, relativeTime } from "@/lib/format";
-import { deviceLook } from "@/lib/group-icons";
+import { deviceLook, guestLook } from "@/lib/group-icons";
 import { hasCapability, lanOnlyAllowed } from "@/lib/provider-status";
 import { useSettings } from "@/lib/settings-context";
 import type { Access, Approval, Device, DnsActivity, EventItem, Facts, Group, ServiceItem } from "@/lib/types";
@@ -64,7 +64,7 @@ export default function DevicePage() {
   if (deviceRes.error) return <Notice tone="error">{deviceRes.error}</Notice>;
   if (!device) return <p className="text-muted">Loading…</p>;
   const group = groups.find((g) => g.id === device.group_id);
-  const { Icon, color } = deviceLook(device, groups);
+  const { Icon, color } = deviceLook(device, groups, guestLook(features));
   const services = sortServices(servicesRes.data ?? []);
   const risky = services.filter((s) => s.risk !== "none" && !s.muted);
   const mutedCount = services.filter((s) => s.risk !== "none" && s.muted).length;

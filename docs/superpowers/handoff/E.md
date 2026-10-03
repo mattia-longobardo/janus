@@ -3,7 +3,7 @@
 ## Environment variables
 - `JANUS_GUEST_START`, `JANUS_GUEST_END` (new, optional): the guest DHCP pool. Empty (the default) means no pool. Both
   or neither: setting only one is refused, like a pool that overlaps the quarantine pool, a group range or the gateway.
-  The pool can also be set in Settings → Guests (`network.guest_start`/`guest_end`); saving the env value drops the override.
+  The pool can also be set in Groups → Guests (`network.guest_start`/`guest_end`); saving the env value drops the override.
 - `JANUS_GUESTS_INTERVAL_S` (new, default 60): how often the worker's `guests` job removes expired guests.
 
 ## Data

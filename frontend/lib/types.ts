@@ -180,7 +180,7 @@ export interface ProvidersFeature {
 export interface Features {
   notify?: { email: boolean; gotify: boolean };
   providers?: ProvidersFeature;
-  guests?: { enabled: boolean; pool: boolean };
+  guests?: { enabled: boolean; pool: boolean; color?: string; icon?: string };
 }
 
 export type ProviderRole = "dhcp" | "dns";
@@ -252,3 +252,5 @@ export type ExpiryInput =
   | { clear_expiry: true }
   | Record<string, never>;
 export type GuestRules = { auto_remove_hours: number | null; inactive_remove_hours: number | null };
+// GET/PUT /guests/settings: the removal rules plus the guests' look.
+export type GuestSettings = GuestRules & { color: string; icon: string };

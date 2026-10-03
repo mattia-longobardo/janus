@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { type NetDraft, errorField, networkPatch, toDraft } from "@/components/settings-network";
 import { REPEATS, nextRun, zoneLabel } from "@/components/settings-schedule";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Button, Checkbox, Field, Notice, PageHeader, inputClass } from "@/components/ui";
+import { Button, Checkbox, Field, Notice, PageHeader, SuffixInput, inputClass } from "@/components/ui";
 import { ApiError, api, errorText } from "@/lib/api";
 import { DAY_NAMES, describeDays, hasDay, toggleDay } from "@/lib/days";
 import { useFeatures } from "@/lib/features";
@@ -57,21 +57,19 @@ function NetInput({
       <label htmlFor={id} className="text-[13px] font-medium text-text2">
         {label}
       </label>
-      <div className="relative">
-        <input
-          id={id}
-          type={type}
-          min={type === "number" ? 10 : undefined}
-          max={type === "number" ? 3600 : undefined}
-          aria-invalid={Boolean(error)}
-          aria-describedby={error ? `${id}-error` : undefined}
-          className={clsx(`${inputClass} font-mono`, suffix && "pr-8", error && "border-bad")}
-          value={draft[field]}
-          spellCheck={false}
-          onChange={(e) => onChange(field, e.target.value)}
-        />
-        {suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-sm text-faint">{suffix}</span>}
-      </div>
+      <SuffixInput
+        id={id}
+        type={type}
+        suffix={suffix}
+        min={type === "number" ? 10 : undefined}
+        max={type === "number" ? 3600 : undefined}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
+        className={clsx("font-mono", error && "border-bad")}
+        value={draft[field]}
+        spellCheck={false}
+        onChange={(e) => onChange(field, e.target.value)}
+      />
       {error && (
         <span id={`${id}-error`} role="alert" className="text-xs text-bad">
           {error}

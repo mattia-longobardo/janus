@@ -61,7 +61,7 @@ export default function GuestsPage() {
           </Button>
         }
       />
-      {poolMissing && <Notice>Set a guest pool in Settings → Guests, otherwise guests get quarantine addresses without internet.</Notice>}
+      {poolMissing && <Notice>Set a guest pool in Groups → Guests, otherwise guests get quarantine addresses without internet.</Notice>}
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
       {guestsRes.error && <Notice tone="error">{guestsRes.error}</Notice>}
       {adding && (
