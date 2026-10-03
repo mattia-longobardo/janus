@@ -97,6 +97,11 @@ class DnsProbe(Protocol):
 
 
 @runtime_checkable
+class DhcpServerState(Protocol):
+    def dhcp_server_active(self) -> bool: ...   # is the box serving DHCP now? raises ProviderError when unsure
+
+
+@runtime_checkable
 class HealthCheck(Protocol):
     def check(self) -> str: ...   # short human summary; raises ProviderError when unreachable
 
@@ -116,6 +121,7 @@ CAPABILITY_ROLE: dict[Capability, Role] = {
 CAPABILITY_PROTOCOL: dict[Capability, type] = {
     Capability.RESERVATIONS: ReservationStore,
     Capability.FORCE_RENEW: LeaseControl,
+    Capability.DHCP_SERVER: DhcpServerState,
     Capability.DNS_QUERY_LOG: DnsQueryLog,
     Capability.DNS_PROBE: DnsProbe,
 }

@@ -1,3 +1,6 @@
+from contextlib import contextmanager
+from dataclasses import replace
+
 import pytest
 from sqlalchemy import select
 
@@ -6,6 +9,7 @@ from app.models import Event, Setting
 from app.providers import config as pc
 from app.providers.base import Capability, Policy, Role
 from app.syncmode import load_sync_mode, set_sync_mode
+from tests.fakes import FakeAdmin, fake_pihole
 
 
 @pytest.fixture(autouse=True)
@@ -34,10 +38,13 @@ def test_env_kind_reads_the_role_variables(monkeypatch):
     assert pc.env_kind(Role.DHCP) is None and pc.env_kind(Role.DNS) == "unifi"
 
 
-def _demo():
+@contextmanager
+def _demo(admin=None):
+    """The demo provider (DHCP only), next to a Pi-hole faked offline (DHCP off unless `admin` says otherwise)."""
     from app.providers import registry
     from tests.providers import fixture_pkg
-    return registry.override({"demo": registry.discover(fixture_pkg)["demo"]})
+    with registry.override({"demo": registry.discover(fixture_pkg)["demo"]}), fake_pihole(admin) as fake:
+        yield fake
 
 
 def test_pihole_dns_and_dhcp_share_one_config(db):
@@ -129,7 +136,6 @@ def test_invalid_saved_config_without_valid_env_is_none(db):
     db.flush()
     from app.providers import registry
     spec = registry.get_spec("pihole")
-    from dataclasses import replace
     with registry.override({"pihole": replace(spec, env_defaults=lambda: {})}):
         assert pc.load_role(db, Role.DHCP) is None
 
@@ -160,18 +166,46 @@ def test_switching_dhcp_provider_forces_dry_run(db, monkeypatch):
         assert load_sync_mode(db) == "dry-run"
 
 
-def test_switching_away_from_a_dhcp_server_in_apply_needs_a_rollback_first(db):
-    with _demo():
-        set_sync_mode(db, "apply", "test")
-        with pytest.raises(pc.ProviderInUse, match="janus rollback"):
+def _active_admin():
+    return FakeAdmin(config={"dhcp": {"active": True}})
+
+
+def test_switching_away_from_pihole_serving_dhcp_needs_a_rollback_first_even_in_dry_run(db):
+    with _demo(_active_admin()):
+        assert load_sync_mode(db) == "dry-run"   # e.g. after `janus sync-mode dry-run` or the worker's forced dry-run
+        with pytest.raises(pc.ProviderInUse, match="Pi-hole is still serving DHCP: run janus rollback first"):
             pc.save_role(db, Role.DHCP, "demo", {})
-        with pytest.raises(pc.ProviderInUse):
+        with pytest.raises(pc.ProviderInUse, match="janus rollback"):
             pc.save_role(db, Role.DHCP, None, None)
-        assert pc.load_role(db, Role.DHCP).kind == "pihole" and load_sync_mode(db) == "apply"
+        assert pc.load_role(db, Role.DHCP).kind == "pihole"
         pc.save_role(db, Role.DHCP, "pihole", {"lease": "12h"})   # same provider: allowed
-        set_sync_mode(db, "dry-run", "test")
-        pc.save_role(db, Role.DHCP, "demo", {})   # after the rollback (dry-run) it is allowed
-        assert pc.load_role(db, Role.DHCP).kind == "demo"
+
+
+def test_switching_away_from_pihole_with_dhcp_off_is_allowed_in_apply(db):
+    with _demo() as admin:   # apply without cutover, or after the rollback: Pi-hole DHCP is off
+        set_sync_mode(db, "apply", "test")
+        pc.save_role(db, Role.DHCP, "demo", {})
+        assert pc.load_role(db, Role.DHCP).kind == "demo" and load_sync_mode(db) == "dry-run"
+        assert admin.patches == []
+
+
+def test_switching_away_from_an_unreachable_pihole_is_refused(db):
+    with _demo(FakeAdmin(fail=True)):
+        with pytest.raises(pc.ProviderInUse, match=r"cannot verify that Pi-hole stopped serving DHCP \(.*boom\)"):
+            pc.save_role(db, Role.DHCP, "demo", {})
+        assert pc.load_role(db, Role.DHCP).kind == "pihole"
+
+
+def test_switching_away_from_a_provider_without_dhcp_server_checks_nothing(db, monkeypatch):
+    from app.providers import registry
+    from tests.providers import fixture_pkg
+    demo = registry.discover(fixture_pkg)["demo"]
+    opened = []
+    monkeypatch.setattr(settings, "dhcp_provider", "demo")
+    with registry.override({"demo": replace(demo, open=lambda cfg: opened.append(cfg))}):
+        set_sync_mode(db, "apply", "test")
+        pc.save_role(db, Role.DHCP, None, None)
+        assert pc.load_role(db, Role.DHCP) is None and opened == []
 
 
 def test_kind_without_that_role_is_refused(db):
@@ -189,7 +223,8 @@ def test_runtime_capabilities_and_policies(db):
     assert runtime.has_capability(db, Role.DHCP, Capability.QUARANTINE)
     assert not runtime.has_capability(db, Role.DNS, Capability.QUARANTINE)
     assert runtime.policies(db) == {Policy.FULL, Policy.LAN_ONLY, Policy.GUEST}
-    pc.save_role(db, Role.DHCP, None, None)
+    with fake_pihole():
+        pc.save_role(db, Role.DHCP, None, None)
     assert runtime.policies(db) == frozenset() and runtime.provider_factory(db, Role.DHCP) is None
 
 

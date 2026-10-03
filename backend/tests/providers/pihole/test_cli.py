@@ -8,6 +8,7 @@ from app.providers import config as pc
 from app.providers import registry
 from app.providers.base import Role
 from app.providers.pihole import cli as pihole_cli
+from tests.fakes import fake_pihole
 from tests.providers import fixture_pkg
 
 
@@ -23,7 +24,8 @@ def _env(db, monkeypatch):
 
 def test_cutover_refuses_when_pihole_is_not_the_dhcp_provider(db, capsys):
     with registry.override({"demo": registry.discover(fixture_pkg)["demo"]}):
-        pc.save_role(db, Role.DHCP, "demo", {})
+        with fake_pihole():
+            pc.save_role(db, Role.DHCP, "demo", {})
         assert cli.main(["cutover", "--pihole-password-env", "PIHOLE_ADMIN"]) == 2
     err = capsys.readouterr().err
     assert "DHCP role" in err and "Demo router" in err

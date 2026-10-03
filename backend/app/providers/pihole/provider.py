@@ -96,6 +96,16 @@ class PiholeProvider:
         if ip:
             self.client.revoke_lease(ip)
 
+    # DhcpServerState
+    def dhcp_server_active(self) -> bool:
+        try:
+            active = self.client.get_config("dhcp")["dhcp"]["active"]
+        except (KeyError, TypeError) as exc:
+            raise PiholeError("GET /api/config/dhcp: unexpected reply") from exc
+        if not isinstance(active, bool):
+            raise PiholeError("GET /api/config/dhcp: unexpected reply, dhcp.active is not a boolean")
+        return active
+
     # DnsQueryLog
     def query_log(self, client_ip: str, since: int, until: int, limit: int = 5000) -> tuple[list[DnsQuery], int]:
         raw, total = self.client.list_queries(client_ip, since, until, limit, disk=until - since > DISK_AFTER_S)

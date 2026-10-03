@@ -7,6 +7,7 @@ from app.net.ipplan import IpRange
 from app.providers import registry
 from app.providers.base import (
     Capability,
+    DhcpServerState,
     DnsProbe,
     DnsQueryLog,
     HealthCheck,
@@ -41,7 +42,7 @@ def _device(db, group, name, mac, ip, access=Access.authorized):
 
 def test_spec_declares_what_the_provider_implements():
     p = PiholeProvider(FakePihole(), CFG)
-    for proto in (ReservationStore, LeaseControl, DnsQueryLog, DnsProbe, HealthCheck):
+    for proto in (ReservationStore, LeaseControl, DnsQueryLog, DnsProbe, HealthCheck, DhcpServerState):
         assert isinstance(p, proto)
     assert Capability.QUARANTINE in SPEC.capabilities and SPEC.policies == {Policy.FULL, Policy.LAN_ONLY, Policy.GUEST}
     assert SPEC.roles == {Role.DHCP, Role.DNS} and SPEC.provider_class is PiholeProvider
@@ -273,6 +274,24 @@ def test_unexpected_dnsmasq_lines_reply_is_a_provider_error(reply):
     fake.get_config = lambda path: reply
     with pytest.raises(PiholeError):
         PiholeProvider(fake, CFG).ensure_guest_range(POOL, "24h")
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_dhcp_server_active_reads_pihole_dhcp_active(active):
+    assert PiholeProvider(FakeAdmin(config={"dhcp": {"active": active}}), CFG).dhcp_server_active() is active
+
+
+@pytest.mark.parametrize("reply", [{}, {"dhcp": {}}, {"dhcp": None}, {"dhcp": {"active": "yes"}}])
+def test_unexpected_dhcp_reply_is_a_provider_error(reply):
+    fake = FakeAdmin()
+    fake.get_config = lambda path: reply
+    with pytest.raises(PiholeError, match="unexpected reply"):
+        PiholeProvider(fake, CFG).dhcp_server_active()
+
+
+def test_dhcp_server_active_on_unreachable_pihole_raises():
+    with pytest.raises(PiholeError):
+        PiholeProvider(FakeAdmin(fail=True), CFG).dhcp_server_active()
 
 
 def test_padded_guest_line_counts_as_present():

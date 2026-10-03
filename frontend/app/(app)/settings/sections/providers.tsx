@@ -29,9 +29,10 @@ function defined(patch: Record<string, unknown>): Record<string, unknown> {
 export function ProvidersSection() {
   const { data, error, reload } = useResource<ProvidersList>("/providers");
   const { features, reload: reloadFeatures } = useFeatures();
-  const { settings, reload: reloadSettings } = useSettings();
-  // The DHCP provider is serving DHCP for Janus: the backend refuses to switch away until `janus rollback`.
-  const servingDhcp = settings.sync_mode === "apply" && hasCapability(features, "dhcp", "dhcp_server");
+  const { reload: reloadSettings } = useSettings();
+  // The DHCP provider can serve DHCP itself: the backend asks it, and refuses to switch away while it serves
+  // (whatever the sync mode) until `janus rollback`.
+  const canServeDhcp = hasCapability(features, "dhcp", "dhcp_server");
   const [dhcpSaves, setDhcpSaves] = useState(0);
 
   if (!data) {
@@ -53,7 +54,7 @@ export function ProvidersSection() {
           role={role}
           title={title}
           list={data}
-          servingDhcp={servingDhcp}
+          canServeDhcp={canServeDhcp}
           onSaved={() => saved(role)}
         />
       ))}
@@ -65,13 +66,13 @@ function RoleRow({
   role,
   title,
   list,
-  servingDhcp,
+  canServeDhcp,
   onSaved,
 }: {
   role: ProviderRole;
   title: string;
   list: ProvidersList;
-  servingDhcp: boolean;
+  canServeDhcp: boolean;
   onSaved: () => Promise<void>;
 }) {
   const view = list.roles[role];
@@ -149,9 +150,9 @@ function RoleRow({
         </select>
       </Field>
       {role === "dhcp" && selected !== savedChoice && (
-        <Notice tone={servingDhcp ? "error" : "info"}>
-          {servingDhcp
-            ? `${view?.label ?? "The current provider"} is serving DHCP (apply). Run janus rollback first, so the LAN never has two DHCP servers; then switch.`
+        <Notice>
+          {canServeDhcp
+            ? `Janus first checks that ${view?.label ?? "the current provider"} is not serving DHCP: if it is, run janus rollback first, so the LAN never has two DHCP servers; then switch. Changing the DHCP provider switches Janus back to dry-run.`
             : "Changing the DHCP provider switches Janus back to dry-run."}
         </Notice>
       )}

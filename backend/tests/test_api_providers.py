@@ -1,6 +1,7 @@
 import pytest
 
 from app.config import settings
+from tests.fakes import FakeAdmin, fake_pihole
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +56,8 @@ def test_test_endpoint_reports_unreachable_provider(client):
 
 
 def test_test_endpoint_without_provider(client):
-    client.put("/api/providers/dhcp", json={"kind": None, "config": None})
+    with fake_pihole():   # Pi-hole DHCP off: switching away is allowed
+        assert client.put("/api/providers/dhcp", json={"kind": None, "config": None}).status_code == 200
     assert client.post("/api/providers/dhcp/test").json() == {"ok": False, "detail": "no provider configured"}
 
 
@@ -68,9 +70,12 @@ def test_provider_routes_require_the_internal_token(client):
     assert client.get("/api/providers/pihole/preflight", headers={"X-Janus-Internal-Token": "wrong"}).status_code == 401
 
 
-def test_put_switching_away_from_pihole_in_apply_is_409(client, db):
-    from app.syncmode import set_sync_mode
+def test_put_switching_away_from_pihole_serving_dhcp_is_409_even_in_dry_run(client):
+    with fake_pihole(FakeAdmin(config={"dhcp": {"active": True}})):
+        r = client.put("/api/providers/dhcp", json={"kind": None})
+    assert r.status_code == 409 and r.json()["detail"] == "Pi-hole is still serving DHCP: run janus rollback first"
 
-    set_sync_mode(db, "apply", "test")
-    r = client.put("/api/providers/dhcp", json={"kind": None})
-    assert r.status_code == 409 and "janus rollback" in r.json()["detail"]
+
+def test_put_switching_away_from_an_unreachable_pihole_is_409(client):
+    r = client.put("/api/providers/dhcp", json={"kind": None})   # nothing listens on the Pi-hole URL
+    assert r.status_code == 409 and "cannot verify that Pi-hole stopped serving DHCP" in r.json()["detail"]

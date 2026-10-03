@@ -18,7 +18,7 @@ from app.config import settings
 from app.events import record_event
 from app.models import Setting
 from app.providers import registry
-from app.providers.base import Capability, ProviderSpec, Role, role_capabilities
+from app.providers.base import Capability, ProviderError, ProviderSpec, Role, role_capabilities
 from app.syncmode import load_sync_mode, set_sync_mode
 
 KEY = "providers.config"
@@ -192,6 +192,20 @@ def _merge(spec: ProviderSpec, overrides: dict[str, Any], patch: dict[str, Any])
     return stored
 
 
+def _ensure_not_serving_dhcp(rc: RoleConfig) -> None:
+    """Ask the box itself, whatever the sync mode says: a dry-run switch never turns its DHCP server off, and
+    switching away while it serves would leave two DHCP servers on the LAN."""
+    label = rc.spec.label
+    try:
+        with rc.spec.open(rc.config) as provider:
+            active = provider.dhcp_server_active()
+    except ProviderError as exc:
+        raise ProviderInUse(f"cannot verify that {label} stopped serving DHCP ({exc}): "
+                            "run janus rollback or check it first") from exc
+    if active:
+        raise ProviderInUse(f"{label} is still serving DHCP: run janus rollback first")
+
+
 def save_role(db: Session, role: Role, kind: str | None, patch: dict[str, Any] | None, *,
               same_as: Role | None = None) -> RoleConfig | None:
     before_stored = _stored(db)
@@ -216,9 +230,8 @@ def save_role(db: Session, role: Role, kind: str | None, patch: dict[str, Any] |
     after = _resolve(stored, role)
     kind_before, kind_after = (before.kind if before else None), (after.kind if after else None)
     if (role is Role.DHCP and kind_before != kind_after and before is not None
-            and Capability.DHCP_SERVER in role_capabilities(before.spec, role) and load_sync_mode(db) == "apply"):
-        # It is serving DHCP for Janus right now: switching away would leave two DHCP servers on the LAN.
-        raise ProviderInUse(f"{before.spec.label} is serving DHCP (sync mode apply): run janus rollback first")
+            and Capability.DHCP_SERVER in role_capabilities(before.spec, role)):
+        _ensure_not_serving_dhcp(before)
     payload: dict[str, Any] = {"role": role.value, "kind_before": kind_before, "kind_after": kind_after,
                                "forced_dry_run": False}
     if role is Role.DHCP and kind_before != kind_after:

@@ -1,8 +1,13 @@
 import copy
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 from typing import Any, Self
 
+from app.providers import registry
 from app.providers.pihole.client import PiholeError
 from app.providers.pihole.cutover import QUARANTINE_LINES
+from app.providers.pihole.provider import PiholeProvider
 
 
 class FakeConfig:
@@ -49,6 +54,12 @@ class FakeAdmin(FakeConfig):
         self.patches: list[dict] = []
         self.fail_config = fail
 
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
     def teleporter(self):
         return b"PK\x03\x04zip"
 
@@ -60,6 +71,15 @@ class FakeAdmin(FakeConfig):
 
     def remove_host(self, line):
         self.hosts.remove(line)
+
+
+@contextmanager
+def fake_pihole(admin: FakeAdmin | None = None) -> Iterator[FakeAdmin]:
+    """The real Pi-hole spec, opened on `admin` (DHCP off by default) instead of the network."""
+    admin = admin if admin is not None else FakeAdmin()
+    spec = registry.get_spec("pihole")
+    with registry.override({"pihole": replace(spec, open=lambda cfg: PiholeProvider(admin, cfg))}):
+        yield admin
 
 
 class FakePihole(FakeConfig):
