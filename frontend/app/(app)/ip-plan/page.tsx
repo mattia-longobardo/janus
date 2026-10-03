@@ -85,8 +85,9 @@ export default function IpPlanPage() {
       />
       {devicesRes.error && <Notice tone="error">{devicesRes.error}</Notice>}
       <div className="flex flex-col items-start gap-6 xl:flex-row">
-        <Card aria-label="Address map" className="max-w-full overflow-x-auto p-[22px]">
-          <div role="grid" aria-label="Addresses" className="grid w-[640px] grid-cols-16 gap-[5px] lg:w-[776px]">
+        <Card aria-label="Address map" className="w-full max-w-full overflow-x-auto p-4 sm:w-auto sm:p-[22px]">
+          {/* Eight columns on phones so every cell fits the card; the familiar 16 from sm up. */}
+          <div role="grid" aria-label="Addresses" className="grid w-full grid-cols-8 gap-[5px] sm:w-[640px] sm:grid-cols-16 lg:w-[776px]">
             {cells.map((cell) => (
               <div
                 key={cell.octet}
