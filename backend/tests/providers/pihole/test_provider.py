@@ -241,3 +241,58 @@ def test_guest_range_unreachable_pihole_still_raises(db, pool):
     fake.fail_config = True
     with pytest.raises(PiholeError):
         PiholeProvider(fake, CFG).after_sync(db)
+
+
+def _failures(db):
+    return [e.payload for e in db.query(Event).filter(Event.type == "sync.failed").order_by(Event.id)]
+
+
+def test_guest_range_failure_is_reported_once_until_it_changes(db, pool):
+    fake = FakePihole()
+    fake.patch_status = 403
+    store = PiholeProvider(fake, CFG)
+    apply_sync(db, store, "pihole", SPEC.policies)
+    apply_sync(db, store, "pihole", SPEC.policies)
+    assert _failures(db) == [{"failed": ["guest range needs app_sudo (run the cutover)"]}]
+    assert db.get(Setting, "provider.pihole.guest_range_error") is not None
+    fake.patch_status = None
+    apply_sync(db, store, "pihole", SPEC.policies)
+    assert db.get(Setting, "provider.pihole.guest_range_error") is None
+    assert len(_failures(db)) == 1
+    fake.config["misc"]["dnsmasq_lines"] = []   # someone removed the line, and app_sudo is off again
+    fake.patch_status = 403
+    apply_sync(db, store, "pihole", SPEC.policies)
+    apply_sync(db, store, "pihole", SPEC.policies)
+    assert len(_failures(db)) == 2
+
+
+@pytest.mark.parametrize("reply", [{}, {"misc": {}}, {"misc": {"dnsmasq_lines": "x"}}, {"misc": None}])
+def test_unexpected_dnsmasq_lines_reply_is_a_provider_error(reply):
+    fake = FakePihole()
+    fake.config = reply
+    fake.get_config = lambda path: reply
+    with pytest.raises(PiholeError):
+        PiholeProvider(fake, CFG).ensure_guest_range(POOL, "24h")
+
+
+def test_padded_guest_line_counts_as_present():
+    admin = FakeAdmin(config={"misc": {"dnsmasq_lines": [OTHERS[0], " dhcp-range=tag:guest,192.168.1.200,192.168.1.229,24h "]}})
+    PiholeProvider(admin, CFG).ensure_guest_range(POOL, "24h")
+    assert admin.patches == []
+
+
+@pytest.mark.parametrize("lease", ["24h,x", "24h\ndhcp-range=1", "", "h", "1 h"])
+def test_lease_cannot_inject_into_dnsmasq_lines(lease):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        PiholeConfig(url=CFG.url, lease=lease)
+
+
+@pytest.mark.parametrize("lease", ["24h", "3600", "45m", "2d", "1w", "infinite"])
+def test_valid_leases(lease):
+    assert PiholeConfig(url=CFG.url, lease=lease).lease == lease
+
+
+def test_api_refuses_a_lease_with_a_comma(client):
+    r = client.put("/api/providers/dhcp", json={"kind": "pihole", "config": {"url": "http://10.0.0.2", "lease": "1h,x"}})
+    assert r.status_code == 422

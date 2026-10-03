@@ -1,13 +1,15 @@
 from typing import Any, Protocol, Self
 from urllib.parse import urlparse
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.events import record_event
+from app.models import Setting
 from app.net.ipplan import IpRange
 from app.netconfig import load_netconfig
 from app.providers.base import CurrentEntry, DnsQuery, Policy, ProviderError, Reservation
+from app.providers.pihole.client import PiholeError
 from app.providers.pihole.codec import parse, render
 from app.providers.pihole.dns import normalize
 
@@ -16,13 +18,16 @@ KIND = "pihole"
 POLICIES = frozenset({Policy.FULL, Policy.LAN_ONLY, Policy.GUEST})
 # Janus' own line in misc.dnsmasq_lines, recognised by this prefix (no comment marker: ruling R28).
 GUEST_RANGE_PREFIX = "dhcp-range=tag:guest,"
+GUEST_RANGE_ERROR_KEY = f"provider.{KIND}.guest_range_error"   # last reported failure, so it is reported once
+# A dnsmasq lease time; nothing else may reach the dhcp-host and dhcp-range lines (no ',' or newline).
+LEASE_PATTERN = r"^(\d+[smhdw]?|infinite)$"
 DISK_AFTER_S = 24 * 3600   # Pi-hole keeps the last 24 h in memory; older queries need the on-disk database
 
 
 class PiholeConfig(BaseModel):
     url: str
     password: str = ""
-    lease: str = "24h"
+    lease: str = Field("24h", pattern=LEASE_PATTERN)
 
 
 class PiholeApi(Protocol):
@@ -65,25 +70,26 @@ class PiholeProvider:
 
     def after_sync(self, db: Session) -> None:
         """Keep the guest dhcp-range in step with the guest pool. Pi-hole refuses the write for an app password
-        until the cutover turns on app_sudo: that is a sync failure to report, not a crash."""
+        until the cutover turns on app_sudo: that is a sync failure to report (once per distinct reason), not a
+        crash."""
         try:
             self.ensure_guest_range(load_netconfig(db).guest_pool(), self.config.lease)
         except ProviderError as exc:
             if not exc.rejected:
                 raise
             reason = "guest range needs app_sudo (run the cutover)" if exc.status == 403 else f"guest range: {exc}"
-            record_event(db, "sync.failed", None, {"failed": [reason]})
+            last = db.get(Setting, GUEST_RANGE_ERROR_KEY)
+            if last is None or last.value != reason:
+                db.merge(Setting(key=GUEST_RANGE_ERROR_KEY, value=reason))
+                record_event(db, "sync.failed", None, {"failed": [reason]})
+            return
+        last = db.get(Setting, GUEST_RANGE_ERROR_KEY)
+        if last is not None:
+            db.delete(last)
+            db.flush()
 
     def ensure_guest_range(self, pool: IpRange | None, lease: str) -> None:
-        """Write Janus' `dhcp-range=tag:guest,...` line to misc.dnsmasq_lines (or drop it without a pool). Lines
-        without the prefix are never touched; nothing is written when the line is already right."""
-        lines = self.client.get_config("misc/dnsmasq_lines")["misc"]["dnsmasq_lines"]
-        own = [line for line in lines if line.strip().startswith(GUEST_RANGE_PREFIX)]
-        wanted = [guest_range_line(pool, lease)] if pool is not None else []
-        if own == wanted:
-            return
-        others = [line for line in lines if line not in own]
-        self.client.patch_config({"misc": {"dnsmasq_lines": others + wanted}})
+        write_guest_range(self.client, pool, lease)
 
     # LeaseControl
     def force_renew(self, mac: str, ip: str | None) -> None:
@@ -106,3 +112,24 @@ class PiholeProvider:
 
 def guest_range_line(pool: IpRange, lease: str) -> str:
     return f"{GUEST_RANGE_PREFIX}{pool.start},{pool.end},{lease}"
+
+
+def guest_range_lines(lines: list[str]) -> list[str]:
+    """Janus' guest range lines among misc.dnsmasq_lines, stripped."""
+    return [line.strip() for line in lines if line.strip().startswith(GUEST_RANGE_PREFIX)]
+
+
+def write_guest_range(client: PiholeApi, pool: IpRange | None, lease: str) -> None:
+    """Write Janus' `dhcp-range=tag:guest,...` line to misc.dnsmasq_lines (or drop it without a pool). Lines
+    without the prefix are never touched; nothing is written when the line is already right."""
+    try:
+        lines = client.get_config("misc/dnsmasq_lines")["misc"]["dnsmasq_lines"]
+    except (KeyError, TypeError) as exc:
+        raise PiholeError("GET /api/config/misc/dnsmasq_lines: unexpected reply") from exc
+    if not isinstance(lines, list) or not all(isinstance(line, str) for line in lines):
+        raise PiholeError("GET /api/config/misc/dnsmasq_lines: unexpected reply, not a list of lines")
+    wanted = [guest_range_line(pool, lease)] if pool is not None else []
+    if guest_range_lines(lines) == wanted:
+        return
+    others = [line for line in lines if not line.strip().startswith(GUEST_RANGE_PREFIX)]
+    client.patch_config({"misc": {"dnsmasq_lines": others + wanted}})

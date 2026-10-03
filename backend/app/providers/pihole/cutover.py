@@ -15,12 +15,13 @@ from app.models import Access, Device
 from app.netconfig import NetConfig, load_netconfig
 from app.providers.pihole.client import PiholeClient, PiholeError
 from app.providers.pihole.provider import (
-    GUEST_RANGE_PREFIX,
     KIND,
     POLICIES,
     PiholeConfig,
     PiholeProvider,
     guest_range_line,
+    guest_range_lines,
+    write_guest_range,
 )
 from app.syncmode import load_sync_mode, set_sync_mode
 
@@ -100,7 +101,7 @@ def _guest_check(net: NetConfig, lines: list[str], lease: str) -> Check:
     if pool is None:
         return Check("guest_rules", True, "no guest pool defined", blocking=False)
     wanted = guest_range_line(pool, lease)
-    if [line.strip() for line in lines if line.strip().startswith(GUEST_RANGE_PREFIX)] == [wanted]:
+    if guest_range_lines(lines) == [wanted]:
         return Check("guest_rules", True, f"guest range present: {wanted}", blocking=False)
     return Check("guest_rules", None, f"the cutover will write the guest range: {wanted}", blocking=False)
 
@@ -217,6 +218,8 @@ def cutover(db: Session, admin: PiholeAdmin, cfg: PiholeConfig, *, dhcp_kind: st
 
 
 def rollback(db: Session, admin: PiholeAdmin) -> dict[str, Any]:
+    # dnsmasq serves DHCP on any dhcp-range: Janus' guest range goes first, while Janus can still write.
+    write_guest_range(admin, None, "")
     admin.patch_config({"dhcp": {"active": False}})
     admin.patch_config({"webserver": {"api": {"app_sudo": False}}})
     set_sync_mode(db, "dry-run", "cli rollback")

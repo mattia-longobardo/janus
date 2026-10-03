@@ -176,3 +176,14 @@ def test_cutover_writes_the_guest_range(db, seeded, pool):
     cutover(db, admin, CFG, dhcp_kind="pihole")
     assert admin.config["misc"]["dnsmasq_lines"] == ["address=/local/192.168.1.220", *QUARANTINE_LINES, GUEST_LINE]
     assert _guest_check(preflight(db, admin, CFG, dhcp_kind="pihole")).ok is True
+
+
+def test_rollback_removes_only_the_guest_range_before_dropping_app_sudo(db, seeded, pool):
+    admin = FakeAdmin()
+    take_backup(db, admin)
+    cutover(db, admin, CFG, dhcp_kind="pihole")
+    assert GUEST_LINE in admin.config["misc"]["dnsmasq_lines"]
+    rollback(db, admin)
+    assert admin.config["misc"]["dnsmasq_lines"] == ["address=/local/192.168.1.220", *QUARANTINE_LINES]
+    assert admin.patches[-3:] == [{"misc": {"dnsmasq_lines": ["address=/local/192.168.1.220", *QUARANTINE_LINES]}},
+                                  {"dhcp": {"active": False}}, {"webserver": {"api": {"app_sudo": False}}}]
