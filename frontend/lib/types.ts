@@ -189,3 +189,16 @@ export type EmailValues = {
   sender: string;
 };
 export type ChannelsView = { gotify: ChannelState<GotifyValues>; email: ChannelState<EmailValues> };
+
+// --- B ---
+export type AuthProvider = {
+  id: string;
+  name: string;
+  discovery_url: string;
+  client_id: string;
+  client_secret: boolean;
+  scopes: string;
+  enabled: boolean;
+  source: "env" | "custom";
+};
+export type AuthSettings = { allowed_emails: string; allowed_emails_source: "env" | "custom"; providers: AuthProvider[] };

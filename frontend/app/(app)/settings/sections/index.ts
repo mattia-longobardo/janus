@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import type { Features } from "@/lib/types";
 
 import { IntegrationsSection } from "./integrations";
+import { SignInSection } from "./sign-in";
 
 export type SettingsSection = {
   id: string;
@@ -12,4 +13,7 @@ export type SettingsSection = {
 };
 
 // One line per self-contained settings card (each loads and saves on its own).
-export const EXTRA_SECTIONS: SettingsSection[] = [{ id: "integrations", title: "Integrations", Component: IntegrationsSection }];
+export const EXTRA_SECTIONS: SettingsSection[] = [
+  { id: "integrations", title: "Integrations", Component: IntegrationsSection },
+  { id: "sign-in", title: "Sign-in & users", Component: SignInSection },
+];
