@@ -56,6 +56,9 @@ class GuestPatch(ExpiryIn):
 class GuestSettingsIn(BaseModel):
     auto_remove_hours: int | None = None
     inactive_remove_hours: int | None = None
+    # Same rules as a group's colour and icon; null goes back to the default look.
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    icon: str | None = Field(default=None, min_length=1, max_length=32)
 
 
 def _out(db: Session, device: Device) -> GuestOut:
@@ -94,12 +97,12 @@ def list_guests(db: Session = Depends(get_db)) -> list[GuestOut]:
 
 
 @router.get("/settings")
-def get_settings(db: Session = Depends(get_db)) -> dict[str, int | None]:
+def get_settings(db: Session = Depends(get_db)) -> dict[str, int | str | None]:
     return guests.SETTINGS.view(db)
 
 
 @router.put("/settings")
-def put_settings(body: GuestSettingsIn, db: Session = Depends(get_db)) -> dict[str, int | None]:
+def put_settings(body: GuestSettingsIn, db: Session = Depends(get_db)) -> dict[str, int | str | None]:
     try:
         view = guests.SETTINGS.update(db, body.model_dump(exclude_unset=True))
     except SettingsError as exc:

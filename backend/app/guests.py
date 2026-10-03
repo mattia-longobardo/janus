@@ -1,4 +1,5 @@
 """Guest devices: saved by MAC, no fixed IP, optionally expiring (own expiry, or global rules)."""
+import re
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -26,10 +27,25 @@ def _hours(value: Any) -> int:
     return value
 
 
+def _color(value: Any) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+        raise SettingsError("color must be a hex colour like #4FC3D9")
+    return value
+
+
+def _icon(value: Any) -> str:
+    if not isinstance(value, str) or not 1 <= len(value) <= 32:
+        raise SettingsError("icon must be 1 to 32 characters")
+    return value
+
+
 # None = rule off. auto counts from guest_since, inactive from last_seen (or guest_since if never seen).
+# color/icon style guests like a group; the defaults are the look guests always had.
 SETTINGS = OverlayStore("guests.settings", [
     StoreField("auto_remove_hours", lambda: None, validate=_hours),
     StoreField("inactive_remove_hours", lambda: None, validate=_hours),
+    StoreField("color", lambda: "#4FC3D9", validate=_color),
+    StoreField("icon", lambda: "guest", validate=_icon),
 ])
 
 

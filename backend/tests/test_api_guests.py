@@ -37,7 +37,7 @@ def test_global_rule_round_trip(client):
     assert client.put("/api/guests/settings", json={"auto_remove_hours": 12}).json()["auto_remove_hours"] == 12
     assert client.put("/api/guests/settings", json={"auto_remove_hours": 0}).status_code == 422
     body = client.put("/api/guests/settings", json={"inactive_remove_hours": 48}).json()
-    assert body == {"auto_remove_hours": 12, "inactive_remove_hours": 48}
+    assert body == {"auto_remove_hours": 12, "inactive_remove_hours": 48, "color": "#4FC3D9", "icon": "guest"}
 
 
 def test_provider_with_guest_policy_is_allowed_and_delete_revokes_lease(client, db, monkeypatch):
@@ -94,3 +94,21 @@ def test_patch_unknown_guest_is_404_even_without_guest_support(client):
     import uuid as _uuid
     app_override_dhcp(client, ("demo", frozenset({Policy.FULL}), lambda: FakeStore()))
     assert client.patch(f"/api/guests/{_uuid.uuid4()}", json={"name": "Z"}).status_code == 404
+
+
+def test_guest_appearance_defaults_and_round_trip(client):
+    app_override_dhcp(client, None)
+    body = client.get("/api/guests/settings").json()
+    assert body["color"] == "#4FC3D9" and body["icon"] == "guest"
+    body = client.put("/api/guests/settings", json={"color": "#E58FB8", "icon": "phone"}).json()
+    assert body == {"auto_remove_hours": None, "inactive_remove_hours": None, "color": "#E58FB8", "icon": "phone"}
+    assert client.get("/api/guests/settings").json()["color"] == "#E58FB8"
+    # Changing the rules leaves the appearance alone.
+    assert client.put("/api/guests/settings", json={"auto_remove_hours": 6}).json()["icon"] == "phone"
+
+
+def test_guest_appearance_is_validated_like_a_group(client):
+    app_override_dhcp(client, None)
+    for bad in ({"color": "red"}, {"color": "#12345"}, {"color": ""}, {"icon": ""}, {"icon": "x" * 33}):
+        assert client.put("/api/guests/settings", json=bad).status_code == 422, bad
+    assert client.get("/api/guests/settings").json()["color"] == "#4FC3D9"
